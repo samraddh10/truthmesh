@@ -1,0 +1,30 @@
+{
+  "name": "superjoin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A fact knowledge layer over PDFs: grounded claims and explained relationships",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "evaluation"
+  ],
+  "scripts": {
+    "build": "tsc -b && tsc -b evaluation && npm run build --workspace @superjoin/web",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b && tsc -b evaluation && npm run typecheck --workspace @superjoin/web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:web": "npm run dev --workspace @superjoin/web",
+    "evaluate": "npm run evaluate --workspace @superjoin/evaluation"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0"
+  }
+}
