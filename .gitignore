@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+storage/
+.cache/
+starter-datasets.zip
+.devenv/*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# devenv
+.devenv*
+devenv.local.nix
+.direnv
+
+# AWS credential exports. Never committed.
+bedrock-long-term-api-key.csv
+*credentials*.csv
+*api-key*.csv
