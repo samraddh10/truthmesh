@@ -76,16 +76,7 @@ npm install && npm test            # 474 tests
 
 ## Video demo
 
-**[▶ Watch the demo (< 3 min)](#)** *(link to be added)*
-
-| Time | Case shown |
-|---|---|
-| 0:00 | A PDF uploaded and processed, with progress |
-| 0:25 | **Case 1 — Corroboration**, both sources cited |
-| 1:00 | **Case 2 — Likely contradiction**, with evidence |
-| 1:35 | **Case 3 — Context-resolved difference** |
-| 2:10 | **Case 4 — A real failure** and how it is handled |
-| 2:40 | Generalization result and one trade-off |
+https://drive.google.com/file/d/1PijQrTY6UDmDKAzVXKAw7y1oPheqqcp8/view?usp=drive_link
 
 ---
 
