@@ -23,3 +23,7 @@ devenv.local.nix
 bedrock-long-term-api-key.csv
 *credentials*.csv
 *api-key*.csv
+
+# Personal/local tool config, not shared
+.claude/settings.local.json
+.code-review-graph/
