@@ -1,34 +1,8 @@
-/**
- * Deciding when a produced claim is the gold claim.
- *
- * Every number in the report rests on this, so the rule is written out rather than left
- * implicit in a similarity score. A produced claim matches a gold claim when all four of
- * these hold:
- *
- *   1. same document;
- *   2. the gold physical page is among the pages the claim's evidence lands on;
- *   3. the predicates are the same measure, by the pipeline's own strict relation;
- *   4. the figures are equal in base units, exactly — or both sides state no figure.
- *
- * Period and scope are deliberately *not* match conditions. They are what the pairs turn
- * on, and folding them into identity would let a claim about FY2024 satisfy a gold claim
- * about Q4 FY24 and then be scored as a correct extraction. They are reported instead as
- * context agreement on claims that already matched, so a value found with the wrong
- * period is visible as exactly that rather than as a miss or as a pass.
- *
- * Exact equality, not a tolerance. The pipeline's own rounding-interval logic decides
- * whether two *sources* agree; using it here would let the system's notion of closeness
- * grade its own extraction, and a scorer must not share a judgement with the thing it
- * scores. Gold values are recorded at source precision, so the produced value should
- * reach the same figure.
- */
-
 import { predicateRelation } from '@superjoin/pipeline';
 import { Decimal } from 'decimal.js';
 
 import type { GoldClaim } from './goldset.ts';
 
-/** The produced side, read out of the database and reduced to what matching needs. */
 export interface ProducedClaim {
   readonly id: string;
   readonly documentId: string;
@@ -43,7 +17,6 @@ export interface ProducedClaim {
   readonly periodType: string | null;
   readonly scope: string | null;
   readonly status: 'accepted' | 'needs_review' | 'rejected';
-  /** Physical pages this claim's evidence points at. */
   readonly pages: readonly number[];
   readonly evidence: readonly ProducedEvidence[];
 }
@@ -63,12 +36,6 @@ export interface ProducedEvidence {
   readonly entailment: 'supported' | 'unsupported' | 'unclear' | 'unchecked';
 }
 
-/**
- * Scale words to their multiplier.
- *
- * Only the words the collection actually uses. An unknown scale is not silently treated
- * as one: that would turn "8,142 somethings" into agreement with "8,142 crore".
- */
 const SCALE_MULTIPLIER: Record<string, string> = {
   crore: '1e7',
   lakh: '1e5',
@@ -77,7 +44,6 @@ const SCALE_MULTIPLIER: Record<string, string> = {
   thousand: '1e3',
 };
 
-/** The figure in base units, or null when it cannot be taken without guessing. */
 export function baseUnits(
   numericValue: string | null,
   scale: string | null,
@@ -95,25 +61,11 @@ export function baseUnits(
 
   const key = scale.trim().toLowerCase();
   const multiplier = SCALE_MULTIPLIER[key];
-  // An unrecognised scale word means the figure's magnitude is unknown, which is not the
-  // same as the figure being unscaled.
   if (multiplier === undefined) return null;
 
   return value.times(new Decimal(multiplier));
 }
 
-/**
- * Whether two predicates name the same measure.
- *
- * Uses the pipeline's own relation, which returns `same` only for identical names after
- * folding. That strictness is what a scorer wants: `adjusted_ebitda` is a
- * `modifier_variant` of `ebitda` and the earnings deck reports both, so accepting the
- * looser relation would let the system satisfy a gold claim about one with the other.
- *
- * `predicateHead` is deliberately not used here. It exists to widen candidate retrieval
- * and its own documentation says it decides nothing; a head term collapses exactly the
- * distinctions this scorer is meant to catch.
- */
 export function predicatesAgree(a: string, b: string): boolean {
   return predicateRelation(a, b).relation === 'same';
 }
@@ -126,19 +78,14 @@ export function compareFigures(gold: GoldClaim, produced: ProducedClaim): ValueV
 
   if (gold.numeric_value === null && produced.numericValue === null) return 'both_absent';
   if (gold.numeric_value === null || produced.numericValue === null) return 'different';
-  // One side carried a scale word neither side could resolve; calling that a mismatch
-  // would blame extraction for a normalization gap, and calling it a match would hide one.
   if (goldValue === null || producedValue === null) return 'incomparable';
 
   return goldValue.equals(producedValue) ? 'equal' : 'different';
 }
 
-/** Fiscal-year labels are written both ways in these documents; neither is canonical. */
 export function foldPeriodLabel(label: string | null): string | null {
   if (label === null) return null;
   const trimmed = label.trim().toUpperCase().replace(/\s+/g, '');
-  // FY24 and FY2024 are the same year written two ways. Q4FY24 keeps its quarter, so a
-  // quarter never folds into the year that contains it.
   return trimmed.replace(/FY(\d{2})\b/g, (_, digits: string) => `FY20${digits}`);
 }
 
@@ -146,12 +93,10 @@ export interface MatchOutcome {
   readonly gold: GoldClaim;
   readonly produced: ProducedClaim | null;
   readonly valueVerdict: ValueVerdict | null;
-  /** Whether the matched claim also carries the gold period, scope and assertion status. */
   readonly periodAgrees: boolean | null;
   readonly scopeAgrees: boolean | null;
 }
 
-/** Case- and punctuation-insensitive subject comparison, for claims with no figure. */
 export function subjectsAgree(a: string, b: string): boolean {
   const fold = (text: string): string =>
     text
@@ -168,13 +113,6 @@ function scopeAgrees(gold: GoldClaim, produced: ProducedClaim): boolean {
   return (produced.scope ?? '').trim().toLowerCase() === gold.scope.trim().toLowerCase();
 }
 
-/**
- * Finds the produced claim for one gold claim, if there is one.
- *
- * When several qualify, the one whose context also agrees is preferred, so a collection
- * holding both the quarter and the year figure is not scored on whichever happened to be
- * inserted first.
- */
 export function matchClaim(
   gold: GoldClaim,
   produced: readonly ProducedClaim[],
@@ -187,11 +125,6 @@ export function matchClaim(
 
     const verdict = compareFigures(gold, claim);
     if (verdict === 'equal') return true;
-    // With no figure on either side there is nothing numeric to tell two claims apart,
-    // and one page of an annual report lists several directors under the same predicate.
-    // The subject is what distinguishes them, so it is required only here — asking for it
-    // on figure claims would fail a correct extraction over "Delhivery" against
-    // "Delhivery Limited".
     if (verdict === 'both_absent') return subjectsAgree(gold.subject, claim.subject);
     return false;
   });
@@ -217,14 +150,6 @@ export function matchClaim(
   };
 }
 
-/**
- * Whether a quote is present in the block it cites.
- *
- * Folds only what the parser itself can legitimately change between the page and the
- * stored block: run-together whitespace, the several dash and quote characters PDFs use
- * interchangeably, and the non-breaking space. Nothing here folds digits, letters or
- * currency symbols, so a figure that does not appear cannot be matched by normalisation.
- */
 export function quoteLocates(quote: string, blockContent: string): boolean {
   const fold = (text: string): string =>
     text

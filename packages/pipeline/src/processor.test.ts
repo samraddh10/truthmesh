@@ -1,11 +1,3 @@
-/**
- * Processing machinery: stage transitions, failure classification and recovery.
- *
- * These run against the real database because the properties are about persisted state:
- * whether a retried job double-counts, whether a permanent failure stops retrying, and
- * whether a run that succeeds on a later attempt still reports the earlier problem.
- */
-
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -58,7 +50,6 @@ afterAll(async () => {
   await rm(storageDir, { recursive: true, force: true });
 });
 
-/** Creates a collection, a document with its file on disk, and a queued run. */
 async function seedRun(options: { withFile?: boolean } = {}) {
   const { db } = database;
   const [collection] = await db
@@ -140,8 +131,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
 
     const outcome = await processDocumentJob({ database, storageDir, stages: [] }, job);
 
-    // Returned rather than thrown: no retry will restore a missing file, so the run is
-    // finished honestly instead of failing repeatedly against the same absence.
     expect(outcome).toMatchObject({ status: 'finished', stage: 'failed' });
 
     const issues = await readIssues(job.runId);
@@ -163,8 +152,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
 
     await expect(processDocumentJob({ database, storageDir, stages }, job)).rejects.toThrow();
 
-    // Left non-terminal on purpose: marking it failed would contradict the job that is
-    // about to run again.
     const run = await readRun(job.runId);
     expect(['parsing', 'extracting']).toContain(run.stage);
     expect(run.finishedAt).toBeNull();
@@ -207,7 +194,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
       await expect(processDocumentJob({ database, storageDir, stages }, job)).rejects.toThrow();
     }
 
-    // Three retries of one problem should read as one problem tried three times.
     const issues = await readIssues(job.runId);
     expect(issues).toHaveLength(1);
     expect(issues[0]?.attemptCount).toBe(3);
@@ -229,8 +215,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
     shouldFail = false;
     const outcome = await processDocumentJob({ database, storageDir, stages }, job);
 
-    // The retry worked, so the run is not permanently branded with a problem that is no
-    // longer true; the issue survives as a resolved record of what happened.
     expect(outcome).toMatchObject({ status: 'finished', stage: 'completed' });
     const issues = await readIssues(job.runId);
     expect(issues[0]?.resolution).toBe('resolved');
@@ -238,8 +222,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
 
   it('keeps issues raised during a successful pass open', async () => {
     const { job } = await seedRun();
-    // A stage that succeeds overall while recording a per-page problem, which is exactly
-    // what the visual route does when one page is throttled and the rest parse fine.
     const stages: StageHandler[] = [
       {
         stage: 'parsing',
@@ -257,8 +239,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
 
     const outcome = await processDocumentJob({ database, storageDir, stages }, job);
 
-    // Resolving these would report a clean success for a document that half-processed.
-    // The stage distinction exists precisely to stop that.
     expect(outcome).toMatchObject({ status: 'finished', stage: 'completed_with_issues' });
 
     const issues = await readIssues(job.runId);
@@ -280,8 +260,6 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
     await processDocumentJob({ database, storageDir, stages }, job);
     await processDocumentJob({ database, storageDir, stages }, job);
 
-    // Counters are absolute, not incremental. An increment would report six pages
-    // processed for a three-page document after one replay.
     const run = await readRun(job.runId);
     expect(run.pagesProcessed).toBe(3);
     expect(run.pagesTotal).toBe(3);
@@ -289,14 +267,10 @@ describe.skipIf(!reachable)('processDocumentJob', () => {
 
   it('abandons a job whose run was deleted, without throwing', async () => {
     const { job } = await seedRun();
-    // Deleting the document cascades its runs away, so the job now refers to neither.
     await database.db.delete(documents).where(eq(documents.id, job.documentId));
 
     const outcome = await processDocumentJob({ database, storageDir, stages: [] }, job);
 
-    // Not a failure: there is no run to mark failed, and recording one against a
-    // vanished run violates a foreign key. Before this was handled the job threw and
-    // pg-boss retried it forever against a run that would never come back.
     expect(outcome.status).toBe('abandoned');
     if (outcome.status !== 'abandoned') return;
     expect(outcome.reason).toBe('run_deleted');
@@ -321,31 +295,15 @@ describe('classifyFailure', () => {
   });
 
   it('defaults an unrecognised error to transient', () => {
-    // The safer direction: a bounded number of wasted retries beats discarding work that
-    // would have succeeded and marking a document failed when it was not.
     expect(classifyFailure(new Error('something odd')).failureClass).toBe('transient');
   });
 });
 
-/**
- * A failure that keeps happening must keep being reported.
- *
- * This is the regression for a real defect. `recordIssue` deduplicates on (run, kind,
- * page) and updates the existing row rather than inserting a second one, so an issue that
- * recurs keeps its original `createdAt`. `resolveOpenIssues` cut on `createdAt`, so it
- * resolved issues the current attempt had just re-recorded, and the run finished
- * `completed` having extracted nothing: every chunk throttled, every issue marked "a later
- * attempt completed this stage", and nothing unresolved for `finishRun` to notice.
- *
- * Observed on the earnings deck against a throttled provider: stage `completed`, 0 of 26
- * chunks, no claims, and four issues all marked resolved with an attempt count of four.
- */
 describe.skipIf(!reachable)('an issue that recurs on a later attempt', () => {
   it('stays open, so the run still reports completed_with_issues', async () => {
     const { job } = await seedRun();
     const { db } = database;
 
-    // Attempt one records the failure and fails the stage.
     let attempt = 0;
     const alwaysThrottled: StageHandler = {
       stage: 'extracting',
@@ -365,8 +323,6 @@ describe.skipIf(!reachable)('an issue that recurs on a later attempt', () => {
     const first = await readRun(job.runId);
     expect(first.stage).toBe('completed_with_issues');
 
-    // The same failure again on a second attempt. recordIssue updates the row it already
-    // has, which leaves createdAt pointing at the first attempt.
     await processDocumentJob({ database, storageDir, stages: [alwaysThrottled] }, job);
 
     const issues = await db
@@ -376,7 +332,6 @@ describe.skipIf(!reachable)('an issue that recurs on a later attempt', () => {
 
     expect(issues).toHaveLength(1);
     expect(issues[0]!.attemptCount).toBe(2);
-    // The failure is still happening, so it is not resolved and the run says so.
     expect(issues[0]!.resolution).not.toBe('resolved');
 
     const second = await readRun(job.runId);
@@ -409,8 +364,6 @@ describe.skipIf(!reachable)('an issue that recurs on a later attempt', () => {
     await processDocumentJob({ database, storageDir, stages: [failsOnce] }, job);
     expect((await readRun(job.runId)).stage).toBe('completed_with_issues');
 
-    // The second attempt does not hit the problem, so the earlier record is stale and is
-    // cleared. Without this the cutoff would never resolve anything.
     await processDocumentJob({ database, storageDir, stages: [failsOnce] }, job);
 
     const issues = await db
@@ -422,16 +375,6 @@ describe.skipIf(!reachable)('an issue that recurs on a later attempt', () => {
   });
 });
 
-/**
- * A long stage must keep saying it is alive.
- *
- * `heartbeat_at` is the only thing distinguishing a stalled run from a working one, which
- * plan 2.3 requires to be distinguishable. Most stages refresh it as a side effect of
- * `recordProgress`, but normalization and the visual route have no per-item counter to
- * report and so refreshed nothing: on a document with hundreds of claims the interface
- * showed a healthy run as "stalled in normalizing", with a Retry button beside it that
- * would have restarted work that was progressing fine.
- */
 describe.skipIf(!reachable)('a long-running stage', () => {
   it('refreshes the heartbeat while it works', async () => {
     const { job } = await seedRun();
@@ -442,8 +385,6 @@ describe.skipIf(!reachable)('a long-running stage', () => {
     const slowStage: StageHandler = {
       stage: 'normalizing',
       async run(context) {
-        // Far enough past enterStage's write that a stage touching nothing would leave a
-        // measurably stale timestamp.
         await new Promise((resolve) => setTimeout(resolve, 1100));
         await heartbeat(db, context.job.runId);
       },

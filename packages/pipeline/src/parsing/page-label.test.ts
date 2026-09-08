@@ -1,9 +1,3 @@
-/**
- * Printed page labels, checked against the values `docs/difficult-pages.md` recorded by
- * hand: prospectus physical 43 prints "214" and physical 83 prints "258", the annual
- * report prints two numbers per physical sheet, and the deck prints one.
- */
-
 import { readFile } from 'node:fs/promises';
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -45,8 +39,6 @@ describe('a single printed number', () => {
   });
 
   it('reads 258 from prospectus physical page 83', async () => {
-    // The excerpt keeps non-contiguous ranges, so labels jump: 43 prints 214 and 83
-    // prints 258. Nothing may infer one from the other.
     expect(readPrintedPageLabel(await page(PROSPECTUS, 83)).label).toBe('258');
   });
 
@@ -57,9 +49,6 @@ describe('a single printed number', () => {
 
 describe('two printed numbers on one sheet', () => {
   it('reports both labels from the annual report spread', async () => {
-    // doc-02 is set two pages to a sheet, so physical page 1 carries printed 2 and 3.
-    // Reporting "2-3" is more use to a reader holding the original than reporting
-    // nothing, and both numbers are genuinely printed there.
     const label = readPrintedPageLabel(await page(ANNUAL_REPORT, 1));
     expect(label.label).toBe('2-3');
     expect(label.confidence).toBe('high');
@@ -74,8 +63,6 @@ describe('two printed numbers on one sheet', () => {
 
 describe('declining to guess', () => {
   it('returns null when the margin holds a row of figures', async () => {
-    // Deck physical page 13 is the quarterly P&L. Its bottom band is full of numbers,
-    // and picking one would send a reviewer to a page that does not exist.
     const label = readPrintedPageLabel(await page(EARNINGS_DECK, 13), { marginFraction: 0.45 });
     expect(label.label).toBe(null);
     expect(label.confidence).toBe('none');
@@ -117,7 +104,6 @@ describe('declining to guess', () => {
       ],
       characterCount: 5,
     };
-    // Five digits is a revenue figure, not a page number.
     expect(readPrintedPageLabel(withRevenue).label).toBe(null);
   });
 });

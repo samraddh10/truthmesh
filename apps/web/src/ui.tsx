@@ -1,11 +1,3 @@
-/**
- * Small shared pieces: badges, notices, and the two hooks every view loads data with.
- *
- * The vocabulary here is deliberately thin. What the interface has to get right is what
- * it says about a claim's status and a relationship's label, and both are decided by the
- * pipeline; the components' only job is not to editorialise on the way to the screen.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
@@ -16,12 +8,6 @@ import type {
 
 import { ApiError } from './api.ts';
 
-/**
- * Human wording for the enums.
- *
- * `needs_review` reads as "needs review" rather than "unverified" or "failed", because
- * plan 4.3 makes it a claim awaiting independent evidence, not a rejected one.
- */
 export const STATUS_LABEL: Record<ClaimStatusContract, string> = {
   accepted: 'accepted',
   needs_review: 'needs review',
@@ -37,7 +23,6 @@ export const RELATIONSHIP_LABEL: Record<RelationshipLabelContract, string> = {
   unrelated: 'unrelated',
 };
 
-/** One line on what each label asserts, shown as a tooltip so the list needs no legend. */
 export const RELATIONSHIP_MEANING: Record<RelationshipLabelContract, string> = {
   corroborates: 'Comparable claims support the same assertion.',
   contradicts: 'Comparable assertions conflict, on strong evidence.',
@@ -108,21 +93,12 @@ export interface Async<T> {
   reload(): void;
 }
 
-/**
- * Runs a fetch when its key changes and whenever `reload` is called.
- *
- * Results from a superseded request are discarded rather than rendered: a reviewer
- * changing the predicate filter twice in quick succession must not be shown the first
- * answer because it happened to arrive second.
- */
 export function useAsync<T>(load: () => Promise<T>, key: string): Async<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
 
-  // The load function is rebuilt on every render by every caller, so the effect keys off
-  // the caller's explicit key and reads the latest function from a ref instead.
   const latest = useRef(load);
   latest.current = load;
 
@@ -153,12 +129,6 @@ export function useAsync<T>(load: () => Promise<T>, key: string): Async<T> {
   return { data, error, loading, reload };
 }
 
-/**
- * Calls `tick` on an interval while `active` is true.
- *
- * Two seconds, which is plan 2.2's suggested starting figure. Polling stops as soon as
- * nothing is in flight, so a finished collection does not keep a request going all day.
- */
 export function usePolling(active: boolean, tick: () => void, intervalMs = 2000): void {
   const latest = useRef(tick);
   latest.current = tick;
@@ -170,20 +140,12 @@ export function usePolling(active: boolean, tick: () => void, intervalMs = 2000)
   }, [active, intervalMs]);
 }
 
-/** Bytes as a short human figure, for the documents table. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const mb = bytes / (1024 * 1024);
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
 }
 
-/**
- * The value a claim states, as text.
- *
- * Assembled from the stored strings and never parsed into a number: plan 4.1 forbids a
- * financial figure passing through a JavaScript number, and formatting is exactly where
- * that would happen unnoticed.
- */
 export function formatValue(claim: {
   rawValue: string | null;
   numericValue: string | null;
@@ -198,10 +160,7 @@ export function formatValue(claim: {
     .join(' ');
 }
 
-/** Physical pages are zero-based internally and shown one-based, labelled as physical. */
 export function pageLabel(physicalPage: number, printedPageLabel: string | null): string {
   const physical = `page ${physicalPage + 1}`;
-  // The printed label is shown beside the physical page, never instead of it: one starter
-  // document prints two labels per sheet, so a label identifies nothing on its own.
   return printedPageLabel === null ? physical : `${physical} (printed ${printedPageLabel})`;
 }

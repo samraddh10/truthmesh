@@ -1,17 +1,3 @@
-/**
- * The Phase 7.1 read endpoints, driven through Fastify's own injection against a live
- * database.
- *
- * Fixtures are inserted directly rather than produced by running the pipeline. What is
- * under test is the read path — filters, pagination, the shape that reaches the browser —
- * and making each assertion wait on an extraction would test the model instead, at a
- * rate limit, without making the query any more correct.
- *
- * The fixture is built to make the interesting cases real: two documents that state the
- * same measure differently, a claim whose only support is a model transcription, and a
- * relationship whose deterministic checks are attached.
- */
-
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,7 +36,6 @@ const reachable = await (async () => {
 let server: Server;
 let storageDir: string;
 
-/** Ids of the fixture, filled in by beforeAll and read by the assertions. */
 interface Fixture {
   collectionId: string;
   reportId: string;
@@ -77,7 +62,6 @@ beforeAll(async () => {
     .returning();
   const collectionId = collection!.id;
 
-  // A real PDF on disk, so the file endpoint serves something a viewer could open.
   const pdfBytes = new Uint8Array(await readFile(THREE_PAGES));
   const storageKey = `${randomUUID()}.pdf`;
   await writeFile(join(storageDir, storageKey), pdfBytes);
@@ -100,8 +84,6 @@ beforeAll(async () => {
       collectionId,
       filename: 'analyst-excerpt.pdf',
       contentHash: randomUUID(),
-      // Deliberately points at nothing on disk: the missing-file case is a real one and
-      // the endpoint has to report it as its own condition.
       storageKey: `${randomUUID()}.pdf`,
       byteSize: 1024,
       pageCount: 2,
@@ -239,7 +221,6 @@ beforeAll(async () => {
     numericValue: '-1229',
     scale: 'crore',
     periodLabel: 'FY2024',
-    // Supported only by a transcription the model itself wrote, so it stays in review.
     status: 'needs_review',
     statusReason: 'supported only by a model transcription of the page image',
   });
@@ -307,7 +288,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!reachable) return;
-  // Cascades through documents, claims, evidence and relationships.
   await server.database.db.delete(collections).where(eq(collections.id, fixture.collectionId));
   await server.close();
   await rm(storageDir, { recursive: true, force: true });
@@ -324,8 +304,6 @@ describe.skipIf(!reachable)('listing facts', () => {
     const body = response.json();
     expect(body.total).toBe(3);
 
-    // needs_review is a real outcome, not a hidden failure: suppressing it would inflate
-    // the grounding precision Phase 8.1 has to report honestly.
     const statuses = body.items.map((item: { status: string }) => item.status).sort();
     expect(statuses).toEqual(['accepted', 'accepted', 'needs_review']);
   });
@@ -340,8 +318,6 @@ describe.skipIf(!reachable)('listing facts', () => {
       .json()
       .items.find((item: { id: string }) => item.id === fixture.reportedClaimId);
 
-    // Plan 4.1: a financial value must not pass through a JavaScript number, and JSON
-    // parsing in the browser would do exactly that if these were sent as numbers.
     expect(typeof claim.numericValue).toBe('string');
     expect(claim.numericValue).toBe('8142');
     expect(typeof claim.normalizedValue).toBe('string');
@@ -432,8 +408,6 @@ describe.skipIf(!reachable)('one fact in full', () => {
     const body = response.json();
     expect(body.evidence).toHaveLength(1);
 
-    // Plan 4.3: a quote that exists is a separate question from a quote that supports the
-    // claim. The transcription is present, and what it supports is not settled.
     expect(body.evidence[0].verification).toBe('visual_only');
     expect(body.evidence[0].entailment).toBe('unclear');
     expect(body.evidence[0].block.extractionMethod).toBe('model_transcription');
@@ -452,7 +426,6 @@ describe.skipIf(!reachable)('one fact in full', () => {
     expect(block.filename).toBe('annual-report.pdf');
     expect(block.pageWidthPt).toBe(595);
     expect(block.coordinateOrigin).toBe('bottom-left');
-    // No box was stored, and page navigation does not depend on one (plan 7.3).
     expect(block.bbox).toBeNull();
   });
 
@@ -483,7 +456,6 @@ describe.skipIf(!reachable)('relationships', () => {
     expect(response.statusCode).toBe(200);
     const item = response.json().items[0];
 
-    // Plan 6.4: the two claims survive comparison untouched and are the answer itself.
     expect(item.claimA.originalStatement).toContain('8,142 Cr');
     expect(item.claimB.originalStatement).toContain('81,415 million');
     expect(item.claimA.evidence).toHaveLength(1);
@@ -496,8 +468,6 @@ describe.skipIf(!reachable)('relationships', () => {
     });
 
     const body = response.json();
-    // Plan 6.4 forbids presenting a model score as a calibrated probability. None is
-    // stored, and the wire shape must not acquire one by accident later.
     expect(body).not.toHaveProperty('confidence');
     expect(body).not.toHaveProperty('score');
     expect(body.rationale).toContain('rounded to the crore');
@@ -513,7 +483,6 @@ describe.skipIf(!reachable)('relationships', () => {
     expect(body.contextDifferences).toEqual([
       { dimension: 'unit', a: 'crore', b: 'million', couldExplainGap: true },
     ]);
-    // Inputs to classification, not proof of the label (plan 6.2).
     expect(body.deterministicChecks.bothAccepted).toBe(true);
   });
 
@@ -529,7 +498,6 @@ describe.skipIf(!reachable)('relationships', () => {
       url: `/collections/${fixture.collectionId}/relationships?label=contradicts`,
     });
     expect(other.json().total).toBe(0);
-    // Counts are collection-wide, so the chips still show what else exists.
     expect(other.json().counts.corroborates).toBe(1);
   });
 
@@ -539,9 +507,6 @@ describe.skipIf(!reachable)('relationships', () => {
       url: `/collections/${fixture.collectionId}/relationships`,
     });
 
-    // A label absent from the map and a label with zero rows mean the same thing to a
-    // reader, so all six are always present. The contract's record is exhaustive over the
-    // enum, and a partial map fails validation in the browser rather than at the boundary.
     expect(Object.keys(response.json().counts).sort()).toEqual([
       'contradicts',
       'corroborates',
@@ -590,7 +555,6 @@ describe.skipIf(!reachable)('documents', () => {
     expect(report.latestRun.claimsAccepted).toBe(2);
     expect(report.latestRun.issues).toEqual([]);
 
-    // A document that was never queued has no run, which is a state the view must render.
     const excerpt = items.find((item: { id: string }) => item.id === fixture.excerptId);
     expect(excerpt.latestRun).toBeNull();
   });
@@ -613,8 +577,6 @@ describe.skipIf(!reachable)('documents', () => {
       url: `/documents/${fixture.excerptId}/file`,
     });
 
-    // The row exists and the bytes do not. Plan 2.1 warns against a document that looks
-    // successful when its file is gone, so this is 410 rather than 404 or 500.
     expect(response.statusCode).toBe(410);
     expect(response.json().error).toBe('file_missing');
   });

@@ -1,15 +1,5 @@
-/**
- * Collection and upload endpoints.
- *
- * A collection is the boundary within which comparisons run, so documents are always
- * uploaded into one. There is no global namespace to fall back on, deliberately: plan
- * section 0.1 requires the two starter datasets never to be compared with each other.
- */
-
 import { randomUUID } from 'node:crypto';
 
-// Imported for its type augmentation: request.isMultipart() and request.parts() exist
-// only once @fastify/multipart is registered, and TypeScript learns that from here.
 import '@fastify/multipart';
 
 import {
@@ -24,7 +14,6 @@ import type { FastifyInstance } from 'fastify';
 
 export interface RouteDependencies {
   readonly ingestion: IngestionContext;
-  /** Ceiling handed to @fastify/multipart, so an oversized body is cut off mid-stream. */
   readonly maxUploadBytes: number;
 }
 
@@ -58,11 +47,6 @@ export async function registerCollectionRoutes(
     };
   });
 
-  /**
-   * Newest first. The interface offers the first entry as the default, and a reviewer who
-   * has just uploaded something means that one; oldest-first would open on whatever
-   * collection they created earliest and never look at again.
-   */
   app.get('/collections', async () => {
     const rows = await db.select().from(collections).orderBy(desc(collections.createdAt));
     return rows.map((row) => ({
@@ -73,16 +57,6 @@ export async function registerCollectionRoutes(
     }));
   });
 
-  /**
-   * Uploads one or more PDFs into a collection.
-   *
-   * Returns 202, not 201: the documents are accepted and queued, and nothing has been
-   * processed yet. Reporting 201 would imply a completed resource that does not exist.
-   *
-   * Each file gets its own result. A request carrying three PDFs can legitimately produce
-   * one acceptance, one duplicate and one rejection, and collapsing that into a single
-   * status would hide which file was which.
-   */
   app.post('/collections/:id/documents', async (request, reply) => {
     const collectionId = (request.params as { id: string }).id;
 
@@ -116,8 +90,6 @@ export async function registerCollectionRoutes(
       try {
         bytes = new Uint8Array(await part.toBuffer());
       } catch (error) {
-        // @fastify/multipart throws once the configured limit is passed, so the whole
-        // file never has to be held in memory to find out that it is too large.
         if ((error as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') {
           results.push({
             status: 'rejected',

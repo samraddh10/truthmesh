@@ -1,11 +1,3 @@
-/**
- * Relationship classification.
- *
- * The tests that matter are about what the classifier is not allowed to get away with: a
- * corroboration between two readings of one passage, a citation to evidence that was
- * never offered, and any form of confidence score.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { CompletionProvider, CompletionRequest, CompletionResult } from '../model/index.ts';
@@ -115,7 +107,6 @@ describe('buildClassificationMessages', () => {
   });
 
   it('labels the checks as inputs rather than as an answer', () => {
-    // A verdict in the prompt is a verdict the model copies.
     expect(rendered).toContain('inputs, not conclusions');
   });
 
@@ -137,8 +128,6 @@ describe('buildClassificationMessages', () => {
   });
 
   it('forbids a confidence score', () => {
-    // Plan 6.4: a model-generated score must not be presented as a calibrated
-    // probability, and the surest way is never to ask for one.
     expect(rendered).toContain('Do not state a confidence');
   });
 
@@ -163,8 +152,6 @@ describe('classifyPair', () => {
   });
 
   it('drops a handle that was never offered', async () => {
-    // A citation the prompt did not contain resolves to nothing rather than being
-    // stored as an identifier that points at no row.
     const client = new ScriptedClient([reply({ evidence_ids: ['E1', 'E9'] })]);
     const result = await classifyPair(claim(), other(), runDeterministicChecks(claim(), other()), handles, {
       client,
@@ -174,8 +161,6 @@ describe('classifyPair', () => {
   });
 
   it('downgrades a corroboration between two readings of one passage', async () => {
-    // The prompt says so and the model still agrees with itself sometimes, so the rule
-    // is applied where it cannot be argued out of.
     const shared = other({ sourceBlockIds: ['block-1'] });
     const client = new ScriptedClient([reply()]);
 

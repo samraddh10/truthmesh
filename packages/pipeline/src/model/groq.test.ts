@@ -1,11 +1,3 @@
-/**
- * The Groq client.
- *
- * The cases here are the ones that cost real time to find: a reasoning model returning an
- * empty answer because it spent the budget thinking, and the difference between a failure
- * worth retrying and one that will repeat forever.
- */
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GroqClient } from './groq.ts';
@@ -52,14 +44,6 @@ describe('GroqClient', () => {
     expect(result.promptTokens).toBe(10);
   });
 
-  /**
-   * The bug this test exists for.
-   *
-   * `gpt-oss-120b` puts its thinking in `reasoning` and returns empty `content` when
-   * `max_tokens` runs out first. Retrying that is pointless — the same ceiling produces
-   * the same emptiness — and treating it as transient froze a run at one chunk of three
-   * hundred while the worker sat idle through eight backoffs.
-   */
   it('does not retry an answer starved by the model’s own reasoning', async () => {
     const fetchMock = vi.fn(async () =>
       reply(choice({ content: '', reasoning: 'thinking about the question' }, 'length')),
@@ -72,7 +56,6 @@ describe('GroqClient', () => {
       client.complete({ messages: [{ role: 'user', content: 'x' }], maxTokens: 4000 }),
     ).rejects.toMatchObject({ kind: 'reasoning_budget_exhausted', retryable: false });
 
-    // One attempt, not nine.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -90,10 +73,6 @@ describe('GroqClient', () => {
     ).rejects.toThrow(/4000-token budget on reasoning/);
   });
 
-  /**
-   * An empty answer that was *not* truncated is a different thing: the model stopped of
-   * its own accord and said nothing, which a second attempt may well fix.
-   */
   it('still retries an empty answer that was not truncated', async () => {
     const fetchMock = vi
       .fn()
@@ -140,8 +119,6 @@ describe('GroqClient', () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.response_format.json_schema.name).toBe('claims');
-    // The pipeline carries media type and base64; the data URL is this wire format's
-    // spelling, built here rather than stored in the shared content type.
     expect(body.messages[0].content[1].image_url.url).toBe('data:image/png;base64,AAAA');
   });
 });

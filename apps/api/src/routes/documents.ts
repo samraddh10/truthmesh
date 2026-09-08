@@ -1,13 +1,3 @@
-/**
- * Document endpoints: the collection's documents with their latest run, and the original
- * PDF bytes.
- *
- * The file endpoint is what makes evidence checkable. Plan 7.3 requires the reviewer to
- * reach the cited physical page in the original document, and PDF.js in the browser needs
- * the actual file to do that. Serving it from local storage is the plan's own arrangement
- * for local execution.
- */
-
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 
@@ -20,7 +10,6 @@ import type { FastifyInstance } from 'fastify';
 
 export interface DocumentRouteDependencies {
   readonly ingestion: IngestionContext;
-  /** Same threshold the run endpoint uses, so one document does not look stalled in one view and not the other. */
   readonly stalledAfterMs: number;
 }
 
@@ -31,14 +20,6 @@ export async function registerDocumentRoutes(
   const { db } = deps.ingestion.database;
   const { storageDir } = deps.ingestion;
 
-  /**
-   * The documents in a collection, each with its most recent run.
-   *
-   * Not in the plan's endpoint table, but plan 7.2 requires the documents view to show
-   * upload, status, pages processed, accepted facts and errors together, and the run
-   * carries all of those. A view built from GET /runs/{id} alone could not list what it
-   * did not already know the ids of.
-   */
   app.get('/collections/:id/documents', async (request, reply) => {
     const collectionId = (request.params as { id: string }).id;
 
@@ -65,9 +46,6 @@ export async function registerDocumentRoutes(
 
     const documentIds = documentRows.map((row) => row.id);
 
-    // Every run for these documents, newest first. A retry creates no new run, but a
-    // document re-uploaded after deletion can have several, and the newest is the one
-    // whose progress the view is reporting.
     const runRows = await db
       .select()
       .from(processingRuns)
@@ -125,7 +103,6 @@ export async function registerDocumentRoutes(
                 id: run.id,
                 stage: run.stage,
                 terminal: isTerminal(run.stage),
-                // A queued run is not stalled: nothing has picked it up yet.
                 stalled:
                   !isTerminal(run.stage) &&
                   run.stage !== 'queued' &&
@@ -149,16 +126,6 @@ export async function registerDocumentRoutes(
     return { collectionId, items } satisfies DocumentList;
   });
 
-  /**
-   * The original PDF.
-   *
-   * Streamed rather than buffered: MAX_UPLOAD_MB defaults to 50, and holding that in
-   * memory per concurrent viewer is avoidable for no benefit.
-   *
-   * The storage key comes from the database, but it is still resolved through
-   * `resolvePath`, which refuses anything escaping the storage root. The check costs
-   * nothing and does not depend on every future writer of that column being careful.
-   */
   app.get('/documents/:id/file', async (request, reply) => {
     const documentId = (request.params as { id: string }).id;
 
@@ -192,9 +159,6 @@ export async function registerDocumentRoutes(
 
     const info = await stat(path).catch(() => null);
     if (info === null || !info.isFile()) {
-      // The row exists and the bytes do not. Reported as a specific condition rather than
-      // a generic 500, because it is the recoverable case plan 2.1 warns about: a
-      // document must never look successful when its file is gone.
       reply.code(410);
       return {
         error: 'file_missing',
@@ -205,7 +169,6 @@ export async function registerDocumentRoutes(
     reply
       .header('content-type', 'application/pdf')
       .header('content-length', String(info.size))
-      // inline, so PDF.js and the browser viewer render it rather than downloading it.
       .header(
         'content-disposition',
         `inline; filename*=UTF-8''${encodeURIComponent(document.filename)}`,

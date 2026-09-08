@@ -1,11 +1,3 @@
-/**
- * The provider switch.
- *
- * What matters here is that the setting is read *per call*, because the whole point is a
- * toggle taking effect in a worker nobody restarted — and that a misconfigured or
- * unreadable setting degrades to a working provider rather than taking the run down.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { SwitchingClient, type ProviderEntry } from './switching.ts';
@@ -19,7 +11,6 @@ function entry(model: string): ProviderEntry {
   return { model, complete: vi.fn(async () => reply(model)) };
 }
 
-/** A database stand-in whose single settings row can be changed between calls. */
 function fakeDb(provider: () => string | undefined) {
   return {
     select: () => ({
@@ -46,11 +37,6 @@ describe('SwitchingClient', () => {
     expect((await client.complete(request)).servedByModel).toBe('llama');
   });
 
-  /**
-   * The reason this class exists rather than resolving once at construction.
-   *
-   * The cache is short-lived, so the second call is made past its window.
-   */
   it('picks up a change without being rebuilt', async () => {
     let active = 'bedrock';
     const client = new SwitchingClient({
@@ -75,8 +61,6 @@ describe('SwitchingClient', () => {
       fallback: 'bedrock',
     });
 
-    // Selecting an unconfigured provider must not strand the run: the API refuses that
-    // switch, but a row written before a key was removed would otherwise poison every call.
     expect((await client.complete(request)).servedByModel).toBe('kimi');
   });
 
@@ -97,7 +81,6 @@ describe('SwitchingClient', () => {
       fallback: 'groq',
     });
 
-    // A settings read is not worth failing a completion over.
     expect((await client.complete(request)).servedByModel).toBe('llama');
   });
 

@@ -1,13 +1,5 @@
-/**
- * Collections, uploads and the shared error body.
- *
- * A leaf module for the same reason as `runs.ts`: these definitions are needed by other
- * contract modules, and reaching them through the barrel would create a cycle.
- */
-
 import { z } from 'zod';
 
-/** Why an upload was refused. Mirrors RejectionReason in the pipeline. */
 export const rejectionReasonSchema = z.enum([
   'empty_file',
   'too_large',
@@ -33,13 +25,6 @@ export const collectionSchema = z.object({
 });
 export type CollectionResponse = z.infer<typeof collectionSchema>;
 
-/**
- * The result of one uploaded file.
- *
- * A single request may carry several PDFs, and they can land differently: one accepted,
- * one a duplicate, one rejected. Reporting per file rather than per request is what lets
- * the caller see which is which instead of getting one verdict for the batch.
- */
 export const uploadResultSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('accepted'),
@@ -54,7 +39,6 @@ export const uploadResultSchema = z.discriminatedUnion('status', [
     filename: z.string(),
     documentId: z.uuid(),
     contentHash: z.string(),
-    /** The name the document was first uploaded under, so the caller can point at it. */
     existingFilename: z.string(),
   }),
   z.object({

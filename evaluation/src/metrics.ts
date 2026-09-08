@@ -1,17 +1,3 @@
-/**
- * The six measurements plan section 8.1 asks for.
- *
- * Each is reported with its own denominator, and the denominators are different on
- * purpose. Grounding precision is over claims the system accepted; recall is over the
- * gold sample; evidence validity is over evidence rows. Collapsing them into one
- * "accuracy" would let a system that accepts almost nothing look excellent, which is the
- * inflation plan 8.1 warns about by asking for coverage and abstention alongside.
- *
- * Nothing here rounds a rate into a claim of quality. A rate over eleven claims is a rate
- * over eleven claims, and the sample size travels with every figure so the report cannot
- * quote one without it.
- */
-
 import type { GoldPair, Goldset } from './goldset.ts';
 import {
   matchClaim,
@@ -34,7 +20,6 @@ export interface ProducedRelationship {
   readonly method: string;
 }
 
-/** A pair the retrieval stage surfaced, whether or not it was later classified. */
 export interface ProducedCandidate {
   readonly claimAId: string;
   readonly claimBId: string;
@@ -56,7 +41,6 @@ export interface RunCost {
   readonly stages: ReadonlyMap<string, number>;
 }
 
-/** A count with the denominator it came from, so neither can be quoted without the other. */
 export interface Rate {
   readonly numerator: number;
   readonly denominator: number;
@@ -71,17 +55,10 @@ export function asPercent(value: Rate): string {
   return `${((value.numerator / value.denominator) * 100).toFixed(1)}%`;
 }
 
-/**
- * Extraction coverage: how much of the hand-reviewed sample the system found at all.
- *
- * This is recall over a 50-claim sample of three documents, not recall over the
- * collection, and the evaluation README is explicit that it does not measure the latter.
- */
 export interface CoverageResult {
   readonly matched: readonly MatchOutcome[];
   readonly missed: readonly MatchOutcome[];
   readonly recall: Rate;
-  /** Of the matched claims, how many also carry the gold period and scope. */
   readonly contextAgreement: Rate;
   readonly byEvidenceKind: ReadonlyMap<string, Rate>;
 }
@@ -117,14 +94,6 @@ export function measureCoverage(
   };
 }
 
-/**
- * Grounding precision on accepted claims.
- *
- * The denominator is claims the system accepted *and* that fall on a page the gold set
- * covers. Accepted claims from elsewhere in the document are not counted as errors: the
- * sample says nothing about them, and scoring them as wrong would measure the sample's
- * coverage rather than the system's precision.
- */
 export interface GroundingResult {
   readonly precision: Rate;
   readonly wrongValue: readonly string[];
@@ -179,18 +148,8 @@ export function measureGrounding(
   };
 }
 
-/**
- * Evidence-reference validity, reported apart from semantic support.
- *
- * Plan 4.3 requires the two to stay separable and plan 8.1 requires them reported
- * separately, because they fail independently: a quote can be genuinely present in the
- * document and still not support the claim citing it. One combined figure would hide
- * whichever of the two was doing worse.
- */
 export interface EvidenceResult {
-  /** The cited block exists and the quote is in it, checked here rather than trusted. */
   readonly referenceValidity: Rate;
-  /** The pipeline's own recorded verification, for comparison with the independent check. */
   readonly recordedVerified: Rate;
   readonly semanticSupport: Rate;
   readonly visualOnly: Rate;
@@ -207,8 +166,6 @@ export function measureEvidence(produced: readonly ProducedClaim[]): EvidenceRes
   const disagreements: string[] = [];
 
   for (const row of rows) {
-    // Re-checked independently rather than reading the stored verification back: a
-    // scorer that trusted the field would report the pipeline's opinion of itself.
     const found = quoteLocates(row.quote, row.blockContent);
     if (found) locates += 1;
     if (row.verification === 'verified_native_text') recordedVerified += 1;
@@ -229,14 +186,6 @@ export function measureEvidence(produced: readonly ProducedClaim[]): EvidenceRes
   };
 }
 
-/**
- * Candidate recall: of the gold pairs whose two claims were both extracted, how many did
- * retrieval actually put in front of the classifier.
- *
- * Conditioned on both claims existing, because a pair cannot be retrieved when one side
- * was never extracted. Counting those as retrieval failures would charge the retrieval
- * stage for an extraction miss, and plan 8.1 asks for the stages to be evaluated apart.
- */
 export interface CandidateRecallResult {
   readonly recall: Rate;
   readonly reachable: number;
@@ -294,14 +243,6 @@ export const LABELS: readonly LabelName[] = [
   'unrelated',
 ];
 
-/**
- * The relationship confusion matrix, plus the error the plan singles out.
- *
- * A false contradiction is asserting `contradicts` or `likely_contradiction` where the
- * gold label is anything else. It is counted separately because it is the failure that
- * matters most here: telling a reviewer two documents disagree when they do not is worse
- * than abstaining, and an aggregate accuracy would treat the two as equal errors.
- */
 export interface RelationshipResult {
   readonly matrix: ReadonlyMap<string, ReadonlyMap<string, number>>;
   readonly scored: number;

@@ -1,19 +1,3 @@
-/**
- * The relationships view: two claims side by side, what differs between them, and why the
- * system labelled the pair as it did.
- *
- * This is the view the assignment is really about, so it is built to plan 6.4's
- * constraints rather than to what would look most decisive. Both claims are shown whole
- * and neither is presented as the correct one. No confidence number appears, because none
- * is stored and any number here would be read as a calibrated probability. The
- * deterministic checks are shown as what the classifier was given, not as proof of the
- * answer it gave.
- *
- * Abstention is displayed as an ordinary outcome. `insufficient_context` sits in the same
- * list, in the same shape, as `contradicts`; a system that can only be seen when it is
- * confident cannot be judged on plan 8.1's abstention rate.
- */
-
 import { useState } from 'react';
 
 import type {
@@ -50,12 +34,10 @@ const LABEL_ORDER: RelationshipLabelContract[] = [
 
 export interface RelationshipsViewProps {
   readonly collectionId: string;
-  /** Set when arriving from a claim, to show only that claim's comparisons. */
   readonly focusClaimId?: string | undefined;
   onClearFocus(): void;
 }
 
-/** One side of the pair. Identical for both, so neither reads as the authoritative one. */
 function ClaimSide({
   claim,
   onInspect,
@@ -166,8 +148,6 @@ function RelationshipCard({
 
         {relationship.uncertaintyReasons.length > 0 ? (
           <div>
-            {/* Plan 6.3 makes abstention a correct answer, so the reason for abstaining is
-                data the reviewer gets to see rather than an absence. */}
             <p className="section-title">What is still open</p>
             <ul className="small" style={{ margin: 0, paddingLeft: 20 }}>
               {relationship.uncertaintyReasons.map((reason, position) => (
@@ -270,8 +250,6 @@ export function RelationshipsView({
                 }}
               >
                 {RELATIONSHIP_LABEL[name]}
-                {/* Counted across the collection rather than the filtered set, so the
-                    chips still say what else is there once one is chosen. */}
                 <span className="tab-count num">{counts[name] ?? 0}</span>
               </button>
             ))}

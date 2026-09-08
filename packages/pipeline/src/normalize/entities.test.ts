@@ -1,11 +1,3 @@
-/**
- * Entity label normalization and fact-group identity.
- *
- * The database-backed half of resolution is exercised by the pipeline integration test;
- * what is worth pinning down here is the rule that decides whether two names are even
- * allowed to merge without a model being asked.
- */
-
 import { randomUUID } from 'node:crypto';
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -38,7 +30,6 @@ async function seedCollection(): Promise<{ collectionId: string }> {
   return { collectionId: row!.id };
 }
 
-/** Records every subject put to it, so a test can count the calls rather than infer them. */
 function stubClient(
   asked: string[],
   verdict: { same: boolean; reason: string },
@@ -60,7 +51,6 @@ function stubClient(
 
 describe('normalizeEntityLabel', () => {
   it('treats a legal form as spelling', () => {
-    // "Delhivery Limited" and "Delhivery Ltd" are one company written two ways.
     expect(normalizeEntityLabel('Delhivery Limited').normalized).toBe('delhivery');
     expect(normalizeEntityLabel('Delhivery Ltd.').normalized).toBe('delhivery');
     expect(normalizeEntityLabel('DELHIVERY PRIVATE LIMITED').normalized).toBe('delhivery');
@@ -74,8 +64,6 @@ describe('normalizeEntityLabel', () => {
   });
 
   it('keeps a distinguishing word that is not a legal form', () => {
-    // The parent-and-subsidiary case from plan 5.3. These must not normalize together;
-    // the second is a candidate for adjudication, never an automatic match.
     const parent = normalizeEntityLabel('Delhivery Limited').normalized;
     const subsidiary = normalizeEntityLabel('Delhivery Express Parcel Private Limited').normalized;
 
@@ -85,7 +73,6 @@ describe('normalizeEntityLabel', () => {
   });
 
   it('strips suffixes only from the end', () => {
-    // "Company" is a legal form at the end and an ordinary word in the middle.
     expect(normalizeEntityLabel('Company Secretary Services Limited').normalized).toBe(
       'company secretary services',
     );
@@ -98,8 +85,6 @@ describe('normalizeEntityLabel', () => {
 
 describe('factGroupId', () => {
   it('is the same for the same group key', () => {
-    // Determinism is what lets two documents processed separately land in one group
-    // without a lookup that could race.
     const a = factGroupId('col', 'ent', 'revenue', '{"period":"FY2024"}');
     const b = factGroupId('col', 'ent', 'revenue', '{"period":"FY2024"}');
     expect(a).toBe(b);
@@ -119,25 +104,12 @@ describe('factGroupId', () => {
   });
 });
 
-/**
- * How many questions one subject may ask the adjudicator.
- *
- * The cap is a performance property with a correctness edge, so it is pinned here. Each
- * candidate is a sequential model call, and on a rate-limited free tier each can sit in
- * retry backoff for tens of seconds. Asking about three tripled that for a subject where
- * the first answer is the informative one, because candidates arrive ordered by lexical
- * closeness — the second and third are the least likely to be the same entity.
- *
- * Observed before the cap: a prospectus naming 146 distinct subjects normalized at about
- * one claim every 45 seconds, hours for a single document.
- */
 describe.skipIf(!reachable)('adjudication budget', () => {
   it('asks about one candidate by default, not three', async () => {
     const { collectionId } = await seedCollection();
     const asked: string[] = [];
     const client = stubClient(asked, { same: false, reason: 'different companies' });
 
-    // Three lexically similar names already exist, so all three are candidates.
     for (const name of ['Acme Logistics Alpha', 'Acme Logistics Beta', 'Acme Logistics Gamma']) {
       await resolveEntity(database.db, { collectionId, subject: name });
     }
@@ -150,7 +122,6 @@ describe.skipIf(!reachable)('adjudication budget', () => {
 
     expect(asked).toHaveLength(1);
     expect(resolution.adjudications).toBe(1);
-    // Nothing was confirmed, so the subject stays its own entity, per plan 5.3.
     expect(resolution.method).toBe('created');
   });
 
@@ -188,8 +159,6 @@ describe.skipIf(!reachable)('adjudication budget', () => {
       maxAdjudications: 0,
     });
 
-    // A zero budget is the same situation as having no model at all: the subject is not
-    // merged on a guess, it is left separate and said to be separate.
     expect(asked).toHaveLength(0);
     expect(resolution.adjudications).toBe(0);
     expect(resolution.method).toBe('created');
@@ -201,8 +170,6 @@ describe.skipIf(!reachable)('adjudication budget', () => {
     const client = stubClient(asked, { same: true, reason: 'the same company' });
 
     await resolveEntity(database.db, { collectionId, subject: 'Delta Shipping Limited' });
-    // Exact match after the legal suffix is stripped, which needs no model at all — this
-    // is why withholding the client costs so little.
     const resolution = await resolveEntity(database.db, {
       collectionId,
       subject: 'Delta Shipping',
@@ -215,14 +182,6 @@ describe.skipIf(!reachable)('adjudication budget', () => {
   });
 });
 
-/**
- * Telling a considered "no" apart from a provider that is not answering.
- *
- * Both leave the subject unmerged, but only one means asking again is pointless. Without
- * the distinction the stage kept paying the client's full retry ladder and its backoff for
- * every remaining subject after the quota was gone — the tail of a run that had already
- * lost the ability to adjudicate anything.
- */
 describe.skipIf(!reachable)('a failing adjudicator', () => {
   it('reports the failure rather than passing it off as "different"', async () => {
     const { collectionId } = await seedCollection();
@@ -236,8 +195,6 @@ describe.skipIf(!reachable)('a failing adjudicator', () => {
 
     await resolveEntity(database.db, { collectionId, subject: 'Epsilon Roadways One' });
 
-    // Neither a yes nor a no. Leaving the subject unmerged would decide entity identity
-    // by outage and record it as though the question had been answered.
     await expect(
       resolveEntity(database.db, {
         collectionId,
@@ -265,18 +222,6 @@ describe.skipIf(!reachable)('a failing adjudicator', () => {
   });
 });
 
-/**
- * Subjects that name no particular thing.
- *
- * This is the regression for the system's first false contradiction. Extraction returned
- * `subject: "document"` for both a prospectus filing date and an earnings-deck date;
- * entity resolution merged them, so the deterministic checks reported `entityMatch: same`
- * and the classifier saw one entity holding two different dates. It called that a
- * contradiction, which was a reasonable reading of what it was given and completely wrong.
- *
- * A false contradiction is the expensive error for this system, so the guard is a rule
- * rather than a request in a prompt.
- */
 describe('generic subjects', () => {
   it('recognises document self-references, whatever the casing or padding', () => {
     for (const subject of ['document', 'This Presentation', '  the company ', 'The Report.']) {
@@ -306,10 +251,7 @@ describe.skipIf(!reachable)('scoping a generic subject', () => {
       scopeKey: 'doc-two',
     });
 
-    // Different entities, so the comparison stage sees entityMatch "different" rather than
-    // "same" and never puts the two filing dates to the classifier as one thing.
     expect(second.entityId).not.toBe(first.entityId);
-    // The reviewer still sees the word the document used, not the scoping key.
     expect(second.canonicalLabel).toBe('document');
   });
 
@@ -335,8 +277,6 @@ describe.skipIf(!reachable)('scoping a generic subject', () => {
     const { collectionId } = await seedCollection();
 
     const first = await resolveEntity(database.db, { collectionId, subject: 'Delhivery Limited' });
-    // No scope key, because the subject is a real entity: this is the merge that must
-    // still happen across documents for corroboration to be possible at all.
     const second = await resolveEntity(database.db, { collectionId, subject: 'Delhivery' });
 
     expect(second.entityId).toBe(first.entityId);

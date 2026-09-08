@@ -1,15 +1,3 @@
-/**
- * Fact endpoints: the paginated claim list and one claim in full.
- *
- * Claims are listed within a collection, never globally. A collection is the comparison
- * boundary (plan 0.1 and 6.1), and a list that crossed it would invite a reviewer to
- * compare two claims the system itself refuses to compare.
- *
- * Rejected and needs_review claims are listed alongside accepted ones. Plan 4.3 makes
- * needs_review a real outcome rather than a lesser failure, and hiding them would inflate
- * the apparent grounding precision that Phase 8.1 has to measure honestly.
- */
-
 import { collections } from '@superjoin/db';
 import { claims, documents } from '@superjoin/db';
 import {
@@ -76,8 +64,6 @@ export async function registerFactRoutes(
     const [rows, total, predicates] = await Promise.all([
       claimQuery(db).where(where).orderBy(...claimOrdering).limit(limit).offset(offset),
       countClaims(db, where),
-      // Offered unfiltered, so choosing one predicate does not remove every other option
-      // from the control that chose it.
       loadPredicates(db, collectionId),
     ]);
 

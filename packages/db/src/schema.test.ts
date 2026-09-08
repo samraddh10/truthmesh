@@ -1,13 +1,3 @@
-/**
- * Schema invariants, checked against a real Postgres.
- *
- * These are not ORM smoke tests. Each one pins a rule the plan states in prose and that
- * nothing else in the codebase can enforce once claims start being written.
- *
- * Skips rather than fails when the database is unreachable, so the unit suite stays
- * runnable without Docker. A skipped run is reported as skipped, never as passing.
- */
-
 import { randomUUID } from 'node:crypto';
 
 import { and, eq } from 'drizzle-orm';
@@ -18,12 +8,6 @@ import { claimEmbeddings, claims } from './schema/claims.ts';
 import { collections, documents } from './schema/collections.ts';
 import { relationships } from './schema/relationships.ts';
 
-/**
- * Connectivity is settled at module load, before the suite is registered, so an
- * unreachable database produces a *skipped* suite rather than a passing one. Deciding
- * this inside a hook and returning early from each test would report the same run as
- * green, which is precisely the falsely successful state the plan warns against.
- */
 const handle: DatabaseHandle = createDatabase();
 const reachable = await handle.pool
   .query('select 1')
@@ -38,7 +22,6 @@ afterAll(async () => {
   if (reachable) await closeDatabase(handle);
 });
 
-/** Fresh collection per test, so one test's rows cannot satisfy another's assertion. */
 async function seedCollection(db: DatabaseHandle['db'], name: string) {
   const [collection] = await db
     .insert(collections)
@@ -77,7 +60,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
     const prospectus = await seedDocument(db, collection.id, 'prospectus.pdf');
     const annualReport = await seedDocument(db, collection.id, 'annual-report.pdf');
 
-    // The real FY21 EBITDA conflict from docs/contradiction-verdict.md.
     await db.insert(claims).values([
       {
         ...claimDefaults,
@@ -100,9 +82,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
       [prospectus.id, annualReport.id].includes(claim.documentId),
     );
 
-    // The point of the schema: the same fingerprint in two documents is two claims, not
-    // one overwritten value. Plan 1.2 forbids one source's claim being replaced because
-    // another disagrees, and the fingerprint uniqueness is scoped per document to allow it.
     expect(forThisCollection).toHaveLength(2);
     expect(forThisCollection.map((c) => c.rawValue).sort()).toEqual(['(1,003.79)', '(1,229)']);
   });
@@ -120,8 +99,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
 
     await db.insert(claims).values(row);
 
-    // Plan 2.3 asks for uniqueness constraints that stop a retried job duplicating
-    // claims. A second insert of the same assertion must collide, not accumulate.
     await expect(db.insert(claims).values(row)).rejects.toThrow();
   });
 
@@ -151,8 +128,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
     const second = await seedCollection(db, 'boundary-b');
     const contentHash = randomUUID();
 
-    // Collections are independent comparison boundaries, so the same bytes uploaded to
-    // each are two documents. Only a repeat within one collection is a duplicate.
     await db.insert(documents).values({
       collectionId: first.id,
       filename: 'shared.pdf',
@@ -196,9 +171,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
       embedding: vector,
     });
 
-    // The column width is fixed, so a vector from a differently sized model is refused
-    // at write time rather than silently compared later. Plan 6.1 forbids comparing
-    // vectors across embedding models.
     await expect(
       db.insert(claimEmbeddings).values({
         claimId: claim!.id,
@@ -240,8 +212,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
 
     await db.delete(relationships).where(eq(relationships.id, relationship!.id));
 
-    // Plan 6.4: the audit trail is the claims. Removing a conclusion must never remove
-    // the evidence it was drawn from.
     const survivors = await db
       .select()
       .from(claims)
@@ -250,9 +220,6 @@ describe.skipIf(!reachable)('schema invariants', () => {
   });
 
   it('has no column for a relationship confidence score', () => {
-    // Plan 6.4 forbids presenting a model-generated score as a calibrated probability.
-    // The most reliable way not to present one is to have nowhere to put it, so this
-    // asserts an absence deliberately rather than by oversight.
     const columns = Object.keys(relationships);
     expect(columns.some((name) => /confidence|score|probability/i.test(name))).toBe(false);
   });

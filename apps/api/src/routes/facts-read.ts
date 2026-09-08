@@ -1,16 +1,3 @@
-/**
- * Reading claims and their evidence out of the database and onto the wire.
- *
- * Shared by the facts endpoints and the relationship endpoints, because a relationship is
- * mostly two claims and showing it means showing both of them in full. Plan 6.4 requires
- * the original claims to survive comparison untouched, so there is one representation of
- * a claim and the relationship views use it rather than a flattened summary of their own.
- *
- * Every list here loads its evidence for the whole page of claims in one query. The
- * obvious alternative, a query per claim, turns a fifty-row list into fifty-one round
- * trips and would show up first as a slow relationships view.
- */
-
 import type { EvidenceItem, FactDetail, FactSummary } from '@superjoin/contracts';
 import {
   claimEvidence,
@@ -23,7 +10,6 @@ import {
 } from '@superjoin/db';
 import { and, count, eq, inArray, or, sql } from 'drizzle-orm';
 
-/** The joined shape every claim query selects, so one mapper serves all of them. */
 export interface ClaimRow {
   readonly claim: typeof claims.$inferSelect;
   readonly filename: string;
@@ -38,14 +24,6 @@ export const claimSelection = {
   entityLabel: entities.canonicalLabel,
 } as const;
 
-/**
- * Joins a claim to the document it came from and the entity it resolved to.
- *
- * The document join is inner: a claim without a document cannot exist and would be a
- * broken row rather than a claim to display. The entity join is outer, because plan 5.3
- * requires an uncertain entity to be left unmerged, so an unresolved subject is a normal
- * state and must not remove the claim from the list.
- */
 export function claimQuery(db: Database) {
   return db
     .select(claimSelection)
@@ -54,7 +32,6 @@ export function claimQuery(db: Database) {
     .leftJoin(entities, eq(entities.id, claims.entityId));
 }
 
-/** Qualifiers are stored as JSONB and re-checked here rather than trusted by shape. */
 function readQualifiers(value: unknown): { name: string; value: string }[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
@@ -65,12 +42,6 @@ function readQualifiers(value: unknown): { name: string; value: string }[] {
   });
 }
 
-/**
- * Pages and evidence counts for a set of claims, in one query.
- *
- * Pages are what the list row shows and what the viewer navigates by, so they are read
- * from the source block rather than from anything the model said about where it looked.
- */
 export async function loadEvidenceIndex(
   db: Database,
   claimIds: readonly string[],
@@ -109,8 +80,6 @@ export function toFactSummary(
     subject: claim.subject,
     predicate: claim.predicate,
     originalStatement: claim.originalStatement,
-    // NUMERIC comes back from the driver as a string and stays one all the way to the
-    // browser, per plan 4.1. Nothing here may parse it.
     rawValue: claim.rawValue,
     numericValue: claim.numericValue,
     normalizedValue: claim.normalizedValue,
@@ -132,13 +101,6 @@ export function toFactSummary(
   };
 }
 
-/**
- * Every evidence link for a set of claims, with the source block resolved.
- *
- * verification and entailment are carried side by side and never collapsed into one
- * "valid" flag: plan 4.3 requires the two to stay separable, because a quote that is
- * genuinely in the document can still fail to support the claim citing it.
- */
 export async function loadEvidence(
   db: Database,
   claimIds: readonly string[],
@@ -209,7 +171,6 @@ export async function loadEvidence(
   return byClaim;
 }
 
-/** How many relationships each claim takes part in, counting both sides of the pair. */
 export async function loadRelationshipCounts(
   db: Database,
   claimIds: readonly string[],
@@ -226,8 +187,6 @@ export async function loadRelationshipCounts(
       or(inArray(relationships.claimAId, ids), inArray(relationships.claimBId, ids)),
     );
 
-  // Both sides are counted, but only for claims that were asked about: the other end of
-  // a pair is a claim the caller did not request and must not appear in the result.
   for (const row of rows) {
     for (const id of [row.claimAId, row.claimBId]) {
       if (!wanted.has(id)) continue;
@@ -237,7 +196,6 @@ export async function loadRelationshipCounts(
   return counts;
 }
 
-/** Assembles full claim details for a set of ids, in a fixed number of queries. */
 export async function loadFactDetails(
   db: Database,
   claimIds: readonly string[],
@@ -274,7 +232,6 @@ export async function loadFactDetails(
   return details;
 }
 
-/** Distinct predicates in a collection, so the filter offers values that actually exist. */
 export async function loadPredicates(
   db: Database,
   collectionId: string,
@@ -288,7 +245,6 @@ export async function loadPredicates(
   return rows.map((row) => row.predicate);
 }
 
-/** Total matching claims, run as its own count so the page size does not limit it. */
 export async function countClaims(
   db: Database,
   where: ReturnType<typeof and>,
@@ -301,13 +257,6 @@ export async function countClaims(
   return row?.total ?? 0;
 }
 
-/**
- * Orders claims by document, then page, then position on the page.
- *
- * Reading order rather than insertion order: a reviewer scanning the list is following
- * the document, and extraction order reflects chunk scheduling, which is arbitrary to
- * them. Ties break on id so paging is stable across requests.
- */
 export const claimOrdering = [
   documents.filename,
   sql`(

@@ -1,13 +1,3 @@
-/**
- * The real gold set, checked as a contract.
- *
- * This runs against `evaluation/goldset.json` itself rather than a fixture. The set is
- * the measuring instrument: if a pair points at a claim that no longer exists, or a claim
- * cites a page past the end of its document, every rate computed from it silently gets a
- * smaller denominator and looks better. That is the kind of error a report cannot show
- * you, so it is caught here instead.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { goldDocumentResolver, loadGoldset, pairedClaimIds } from './goldset.ts';
@@ -22,9 +12,6 @@ describe('the gold set', () => {
   });
 
   it('reads as UTF-8, so currency symbols survive', () => {
-    // Read with an explicit encoding rather than the platform default. On Windows that
-    // default is cp1252, which turns the rupee sign into three characters and would fail
-    // every quote match involving a figure in rupees.
     const withRupee = goldset.claims.filter((claim) => claim.quote.includes('₹'));
     expect(withRupee.length).toBeGreaterThan(0);
     for (const claim of goldset.claims) {
@@ -33,8 +20,6 @@ describe('the gold set', () => {
   });
 
   it('keeps every decimal a string, never a JSON number', () => {
-    // Plan 4.1: a financial value must not pass through a JavaScript number. The schema
-    // enforces it, and this states why the schema is written that way.
     for (const claim of goldset.claims) {
       if (claim.numeric_value === null) continue;
       expect(typeof claim.numeric_value).toBe('string');
@@ -46,8 +31,6 @@ describe('the gold set', () => {
     const negatives = goldset.claims.filter(
       (claim) => claim.numeric_value !== null && claim.numeric_value.startsWith('-'),
     );
-    // The documents print losses in parentheses; the convention says the set stores them
-    // signed. A set with no negative at all would mean that fold was never applied.
     expect(negatives.length).toBeGreaterThan(0);
   });
 
@@ -61,8 +44,6 @@ describe('the gold set', () => {
     expect(counts.get('likely_contradiction')).toBe(3);
     expect(counts.get('unrelated')).toBe(2);
     expect(counts.get('insufficient_context')).toBe(1);
-    // No pair is labelled `contradicts`: the README records that in every conflict a
-    // definition or basis is left unstated by the sources.
     expect(counts.get('contradicts') ?? 0).toBe(0);
   });
 

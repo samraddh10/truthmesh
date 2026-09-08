@@ -1,12 +1,3 @@
-/**
- * The deterministic checks and the label they can justify on their own.
- *
- * The single most important property here is negative: no combination of arithmetic
- * produces `contradicts` or `likely_contradiction`. Plan 6.2 states that these checks are
- * not proof of either conclusion, and every apparent conflict in the collection turns on
- * a definition or a basis that arithmetic cannot read.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { deterministicLabel, runDeterministicChecks, type ComparableClaim } from './checks.ts';
@@ -36,7 +27,6 @@ const claim = (overrides: Partial<ComparableClaim> = {}): ComparableClaim => ({
   ...overrides,
 });
 
-/** The other side of the gold set's FY24 revenue pair, from the annual report. */
 const report = (overrides: Partial<ComparableClaim> = {}): ComparableClaim =>
   claim({
     id: 'claim-b',
@@ -60,8 +50,6 @@ describe('runDeterministicChecks', () => {
   });
 
   it('reports a period difference without ruling the pair out', () => {
-    // Plan 6.1: differing periods must survive retrieval, because they are the
-    // reconciliation cases.
     const checks = runDeterministicChecks(claim(), report({ periodLabel: 'FY2023' }));
 
     expect(checks.contextDifferences[0]?.dimension).toBe('period');
@@ -91,7 +79,6 @@ describe('runDeterministicChecks', () => {
   });
 
   it('flags a pair whose claims rest on the same passage', () => {
-    // Plan 6.4: repeated wording is not independent evidence.
     const checks = runDeterministicChecks(claim(), report({ sourceBlockIds: ['block-1'] }));
 
     expect(checks.sharedSourceBlocks).toEqual(['block-1']);
@@ -120,8 +107,6 @@ describe('runDeterministicChecks', () => {
 
 describe('deterministicLabel', () => {
   it('never reaches a contradiction, whatever the arithmetic says', () => {
-    // The invariant. A gap of 225 million with no explanation is still not a conflict
-    // that arithmetic may declare.
     const checks = runDeterministicChecks(
       claim({ predicate: 'ebitda', numericValue: '-1229', scale: 'million', periodLabel: 'FY2021' }),
       report({ predicate: 'ebitda', numericValue: '-1003.79', scale: 'million', periodLabel: 'FY2021' }),
@@ -140,10 +125,6 @@ describe('deterministicLabel', () => {
   });
 
   it('refuses to corroborate when neither claim states a period', () => {
-    // checks@2 stopped counting silence as disagreement, which was right — but an empty
-    // difference list then meant both "the contexts match" and "neither said". Two
-    // figures with no period on either side are not known to describe the same thing,
-    // and reading agreement into that is how a quarter corroborates a year.
     const checks = runDeterministicChecks(
       claim({ periodLabel: null, periodType: null }),
       report({ periodLabel: null, periodType: null }),
@@ -155,9 +136,6 @@ describe('deterministicLabel', () => {
   });
 
   it('refuses to corroborate when identity rests on the subject line alone', () => {
-    // `unresolved` means neither claim was tied to an entity, so the two agree on a name.
-    // Two companies can share one, and only the classifier is in a position to read the
-    // surrounding text and say.
     const checks = runDeterministicChecks(claim({ entityId: null }), report({ entityId: null }));
 
     expect(checks.entityMatch).toBe('unresolved');
@@ -184,8 +162,6 @@ describe('deterministicLabel', () => {
   });
 
   it('abstains when the contexts differ, rather than reconciling them itself', () => {
-    // A reconciliation has to be supported by text on a cited page, which is a reading
-    // task and not an arithmetic one.
     const decided = deterministicLabel(
       runDeterministicChecks(claim(), report({ periodLabel: 'FY2023', numericValue: '72236' })),
     );
@@ -214,19 +190,6 @@ describe('deterministicLabel', () => {
   });
 });
 
-/**
- * The regression for this system's only false contradiction.
- *
- * Extraction returned `subject: "document"` for both a prospectus filing date and an
- * earnings deck's date. Both sides then had the same subject text and the same predicate
- * with different values, and the classifier called it a contradiction — "a document cannot
- * have two distinct dates of issuance", which is true and irrelevant, because these are
- * two different documents.
- *
- * Scoping the entity was not enough on its own: the classifier reads the subject text, not
- * only the resolved entity. The pair has to be refused by the gate that decides what the
- * classifier is shown at all.
- */
 describe('placeholder subjects across documents', () => {
   const dated = (documentId: string, value: string): ComparableClaim => ({
     ...claim(),
@@ -244,14 +207,10 @@ describe('placeholder subjects across documents', () => {
 
     expect(checks.worthComparing).toBe(false);
     expect(checks.notes.join(' ')).toContain('name the document itself');
-    // Whatever the fallback calls it, it must not be a conflict: asserting that two
-    // documents disagree because both called their subject "document" is the error.
     expect(['unrelated', 'insufficient_context']).toContain(deterministicLabel(checks).label);
   });
 
   it('still compares two placeholder claims inside one document', () => {
-    // Within a file, "this presentation" does name one thing, so the pair is not refused
-    // on these grounds — same-document handling takes over from here.
     const checks = runDeterministicChecks(dated('doc-1', 'May 14, 2022'), dated('doc-1', 'May 17, 2024'));
     expect(checks.notes.join(' ')).not.toContain('name the document itself');
   });
@@ -259,20 +218,10 @@ describe('placeholder subjects across documents', () => {
   it('leaves real subjects comparable across documents', () => {
     const a = { ...dated('doc-1', '8,142 Cr'), subject: 'Delhivery Limited', predicate: 'revenue' };
     const b = { ...dated('doc-2', '8,142 Cr'), subject: 'Delhivery Limited', predicate: 'revenue' };
-    // This is the pair corroboration depends on; the guard must not touch it.
     expect(runDeterministicChecks(a, b).worthComparing).toBe(true);
   });
 });
 
-/**
- * Which pairs get asked first when the budget will not cover all of them.
- *
- * On a metered model the classifier runs out long before the candidates do, and everything
- * left over falls back to the deterministic answer, which abstains by design. So the order
- * decides which of the four cases a run can find at all — a run that spent its first fifty
- * calls on pgvector's reading-similarity order found no corroboration in the whole
- * collection, because none of the fifty was a pair that could have been one.
- */
 describe('ordering pairs by promise', () => {
   const other = (overrides: Partial<ComparableClaim> = {}): ComparableClaim =>
     claim({ id: 'claim-b', documentId: 'doc-2', ...overrides });
@@ -281,10 +230,7 @@ describe('ordering pairs by promise', () => {
     promiseOf(runDeterministicChecks(a, b));
 
   it('ranks a pair that could be a corroboration above one that could not', () => {
-    // Same entity, same measure, two documents, both with figures: the shape every one of
-    // corroborates, contradicts and reconciled_by_context takes.
     const promising = promiseFor(claim(), other());
-    // Same entity, but no figure on either side, so nothing can be established.
     const vague = promiseFor(
       claim({ numericValue: null, rawValue: null }),
       other({ numericValue: null, rawValue: null }),
@@ -306,14 +252,10 @@ describe('ordering pairs by promise', () => {
   });
 
   it('demotes a pair whose claims read the same passage twice', () => {
-    // The shared fixture cites block-1 on both sides, so independence has to be arranged
-    // explicitly rather than assumed from the defaults.
     const independent = promiseFor(
       claim({ sourceBlockIds: ['block-1'] }),
       other({ sourceBlockIds: ['block-2'] }),
     );
-    // One passage read twice is not two sources, and a corroboration built on it is
-    // downgraded later anyway — so it is a poor use of a call while others are unasked.
     const shared = promiseFor(
       claim({ sourceBlockIds: ['block-1'] }),
       other({ sourceBlockIds: ['block-1'] }),
@@ -322,8 +264,6 @@ describe('ordering pairs by promise', () => {
   });
 
   it('sorts a pair the gate refuses below every pair that would be asked', () => {
-    // Different entities: refused, so its order cannot matter — but it must not displace a
-    // pair the classifier would otherwise have reached.
     const refused = promiseFor(claim(), other({ entityId: 'entity-2' }));
     const weakest = promiseFor(
       claim({ numericValue: null, rawValue: null, status: 'needs_review' }),
@@ -333,14 +273,6 @@ describe('ordering pairs by promise', () => {
   });
 });
 
-/**
- * Silence is not disagreement.
- *
- * `corroborates` requires zero context differences, so counting an unstated field as a
- * difference blocked every genuine agreement where either document left something out —
- * which extraction routinely does. The collection produced no corroboration at all, and
- * this was why: plan 5.2 makes null mean unknown, and unknown is not a conflict.
- */
 describe('unstated context', () => {
   const stated = claim({ scope: 'consolidated', assertionStatus: 'reported' });
 
@@ -354,7 +286,6 @@ describe('unstated context', () => {
 
     const checks = runDeterministicChecks(stated, silent);
     expect(checks.contextDifferences.map((d) => d.dimension)).not.toContain('scope');
-    // And that is what lets the deterministic path reach the case at all, with no model.
     expect(deterministicLabel(checks).label).toBe('corroborates');
   });
 
@@ -368,7 +299,6 @@ describe('unstated context', () => {
 
     const checks = runDeterministicChecks(stated, standalone);
     expect(checks.contextDifferences.map((d) => d.dimension)).toContain('scope');
-    // Consolidated against standalone is a real difference, so this is not a corroboration.
     expect(deterministicLabel(checks).label).not.toBe('corroborates');
   });
 
@@ -381,8 +311,6 @@ describe('unstated context', () => {
     });
 
     const checks = runDeterministicChecks(stated, noCurrency);
-    // Plan 5.1 forbids converting currencies without a stated rate, but that rule is about
-    // two *stated* currencies; it does not make an unstated one a conflict.
     expect(checks.contextDifferences.map((d) => d.dimension)).not.toContain('currency');
   });
 });

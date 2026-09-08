@@ -1,17 +1,3 @@
-/**
- * The issues view.
- *
- * Plan 7.3 requires the interface to show the observed failure and how it was handled,
- * and acceptance depends on a real one being demonstrable. That makes this view part of
- * the deliverable rather than an operator's convenience, which is why issues are grouped
- * by failure kind: the question a reviewer is really asking is what kinds of thing go
- * wrong, not which page number happened to go wrong first.
- *
- * Resolved and abandoned issues stay listed. An issue the system recovered from is the
- * evidence that recovery works, and an abandoned one is the evidence of the limit; a view
- * that showed only what is currently broken would erase both.
- */
-
 import type { DocumentSummary, ProcessingIssueResponse } from '@superjoin/contracts';
 
 import { listDocuments } from './api.ts';
@@ -115,8 +101,6 @@ export function IssuesView({ collectionId }: { collectionId: string }) {
                       {issue.message}
                       {issue.isTransient !== null ? (
                         <div className="muted">
-                          {/* Plan 2.3: a transient provider failure and an invalid PDF are
-                              different problems and no number of retries fixes the second. */}
                           {issue.isTransient
                             ? 'classified as transient — a retry could succeed'
                             : 'classified as permanent — retrying would not help'}

@@ -1,12 +1,3 @@
-/**
- * The Phase 2 endpoints, driven through Fastify's own injection so the multipart parsing,
- * status codes and JSON bodies are all real.
- *
- * Uses the live database and queue, because the behaviour worth testing here — 202 rather
- * than 201, per-file results, a duplicate reported instead of reprocessed — only means
- * anything against real ingestion.
- */
-
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,7 +41,6 @@ afterAll(async () => {
   await rm(storageDir, { recursive: true, force: true });
 });
 
-/** Builds a multipart body by hand, so the test exercises real parsing rather than a helper. */
 function multipartBody(files: { field: string; filename: string; content: Uint8Array }[]): {
   payload: Buffer;
   headers: Record<string, string>;
@@ -137,7 +127,6 @@ describe.skipIf(!reachable)('uploading documents', () => {
       ...body,
     });
 
-    // 202, not 201: the document is queued and nothing has been processed yet.
     expect(response.statusCode).toBe(202);
     const payload = response.json();
     expect(payload.results).toHaveLength(1);
@@ -150,8 +139,6 @@ describe.skipIf(!reachable)('uploading documents', () => {
     const collectionId = await newCollection();
     const shared = await uniquePdf();
 
-    // The same bytes twice plus an encrypted file: accepted, duplicate, rejected, in one
-    // request. A single status for the batch would hide which file was which.
     const body = multipartBody([
       { field: 'a', filename: 'first.pdf', content: shared },
       { field: 'b', filename: 'again.pdf', content: shared },
@@ -203,7 +190,6 @@ describe.skipIf(!reachable)('run status', () => {
     const status = response.json();
     expect(status.stage).toBe('queued');
     expect(status.terminal).toBe(false);
-    // Queued is not stalled: nothing has picked it up yet, which is normal.
     expect(status.stalled).toBe(false);
     expect(status.filename).toBe('deck.pdf');
     expect(status.progress.pagesTotal).toBe(3);
@@ -228,7 +214,6 @@ describe.skipIf(!reachable)('run status', () => {
     });
     const runId = upload.json().results[0].runId as string;
 
-    // Re-queueing live work would put two workers on one document.
     const response = await server.app.inject({ method: 'POST', url: `/runs/${runId}/retry` });
     expect(response.statusCode).toBe(409);
     expect(response.json().error).toBe('run_in_progress');
@@ -248,7 +233,6 @@ describe.skipIf(!reachable)('retrying only some stages', () => {
     });
     const runId = upload.json().results[0].runId as string;
 
-    // The run has to have stopped before a retry is allowed, whole or partial.
     await server.database.db
       .update(processingRuns)
       .set({ stage: 'completed_with_issues' })
@@ -260,9 +244,6 @@ describe.skipIf(!reachable)('retrying only some stages', () => {
     });
 
     expect(response.statusCode).toBe(202);
-    // Extraction has already spent the model quota by the time comparison is reached, so
-    // re-running everything to get relationships spends it again on claims that are
-    // already stored. Naming the stage is what makes comparison the thing it is spent on.
     expect(response.json().stages).toEqual(['comparing']);
   });
 

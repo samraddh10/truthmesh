@@ -1,11 +1,3 @@
-/**
- * Reading a processed collection out of the database into the shapes the scorer wants.
- *
- * The scorer reads the same tables the interface does rather than a separate evaluation
- * export. An export would be a second description of what the pipeline produced, and the
- * two would eventually disagree about which one was being measured.
- */
-
 import {
   claimEvidence,
   claims,
@@ -25,7 +17,6 @@ import type { ProducedClaim, ProducedEvidence } from './match.ts';
 export interface LoadedCollection {
   readonly collectionId: string;
   readonly name: string;
-  /** Uploaded filename for a document id. Turned into a gold document id by the caller. */
   readonly filenameOf: (documentId: string) => string | undefined;
   readonly claims: readonly ProducedClaim[];
   readonly relationships: readonly ProducedRelationship[];
@@ -35,7 +26,6 @@ export interface LoadedCollection {
 
 export class CollectionNotFound extends Error {}
 
-/** Resolves a collection by id, or by exact name when an id was not given. */
 export async function resolveCollection(
   db: Database,
   idOrName: string,
@@ -129,13 +119,6 @@ export async function loadCollection(
     method: row.method,
   }));
 
-  /**
-   * Every stored relationship was a retrieved candidate, so the relationship table is a
-   * lower bound on retrieval. Pairs that retrieval surfaced and the classifier then
-   * declined to store are not recoverable from the database, so candidate recall
-   * measured this way cannot exceed classification coverage; the report says so rather
-   * than presenting it as pure retrieval performance.
-   */
   const candidates: ProducedCandidate[] = relationshipRows.map((row) => ({
     claimAId: row.claimAId,
     claimBId: row.claimBId,
@@ -203,15 +186,6 @@ export async function loadCollection(
   };
 }
 
-/**
- * What parsing produced, independent of any gold set.
- *
- * Plan 8.1 asks for failed-page and chunk counts; this is that, plus the structural
- * coverage that says whether parsing generalized. It needs no ground truth, which is the
- * point: on a held-out collection with no reviewed sample, this is the part that can
- * still be measured, and a drop in printed-label or bounding-box coverage is a finding
- * even when nothing downstream ran.
- */
 export interface StructureSummary {
   readonly blocks: number;
   readonly pagesTotal: number;

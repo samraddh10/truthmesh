@@ -4,7 +4,6 @@ import { bindToAxisLabels, columnPitch, type Positioned } from './axis-binding.t
 
 const at = (text: string, centerX: number): Positioned => ({ text, centerX });
 
-/** Five columns on a 20pt pitch, the shape of every FY chart in the collection. */
 const FY_AXIS = [at('FY20', 100), at('FY21', 120), at('FY22', 140), at('FY23', 160), at('FY24', 180)];
 
 describe('columnPitch', () => {
@@ -13,8 +12,6 @@ describe('columnPitch', () => {
   });
 
   it('ignores a single outlying gap rather than averaging it in', () => {
-    // A label picked up from a neighbouring chart would drag a mean far enough to make
-    // every threshold meaningless. The median holds.
     expect(columnPitch([...FY_AXIS, at('FY25', 900)])).toBe(20);
   });
 
@@ -34,8 +31,6 @@ describe('bindToAxisLabels', () => {
   });
 
   it('refuses to guess when a value sits midway between two columns', () => {
-    // The failure mode that matters. Returning FY20 here would be a coin flip presented
-    // as a fact, which is exactly what F1 did.
     const [binding] = bindToAxisLabels([at('999', 110)], FY_AXIS);
     expect(binding?.label).toBe(null);
     expect(binding?.ambiguous).toBe(true);
@@ -57,8 +52,6 @@ describe('bindToAxisLabels', () => {
   });
 
   it('reports a lone label as a match but never as an unambiguous one', () => {
-    // One label gives no pitch, so the match cannot be qualified. It is surfaced for a
-    // reviewer rather than discarded, but it must not read as verified.
     const [binding] = bindToAxisLabels([at('(2,532)', 101)], [at('FY20', 100)]);
     expect(binding?.label?.text).toBe('FY20');
     expect(binding?.ambiguous).toBe(true);

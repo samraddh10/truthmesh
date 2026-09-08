@@ -17,8 +17,6 @@ const block = (
 
 describe('carrying context into a chunk', () => {
   it('puts the section heading in the chunk text', () => {
-    // A row reading "72,236" means nothing without the heading above it. Dropping the
-    // heading invites the model to invent the context it needs.
     const chunks = chunkSourceBlocks([
       block('h', 'Consolidated performance', { blockType: 'heading' }),
       block('b', 'Revenue from services was 72,236 million.'),
@@ -31,8 +29,6 @@ describe('carrying context into a chunk', () => {
   });
 
   it('names the physical page and the printed label', () => {
-    // Evidence keys off the physical page; the printed label is what a reader holding
-    // the original filing will actually look for.
     const chunks = chunkSourceBlocks([block('b', 'Some narrative text.')]);
     expect(chunks[0]?.text).toContain('page 5');
     expect(chunks[0]?.text).toContain('printed 10-11');
@@ -61,8 +57,6 @@ describe('carrying context into a chunk', () => {
       block('b', 'Amit Agarwal, Chief Financial Officer.'),
     ]);
 
-    // The section boundary is what stops the CFO being read under the board heading,
-    // which is failure F2 arriving by a different route.
     const cfoChunk = chunks.find((chunk) => chunk.text.includes('Amit Agarwal'));
     expect(cfoChunk?.heading).toBe('Key Managerial Personnel');
   });
@@ -75,8 +69,6 @@ describe('mapping back to sources', () => {
   });
 
   it('never spans two pages in one chunk', () => {
-    // A chunk covering two pages makes a claim's page ambiguous at exactly the moment it
-    // matters.
     const chunks = chunkSourceBlocks([
       block('a', 'On page five.', { physicalPage: 5 }),
       block('b', 'On page six.', { physicalPage: 6 }),
@@ -90,7 +82,7 @@ describe('mapping back to sources', () => {
 
 describe('sizing', () => {
   it('starts a new chunk once the target is passed', () => {
-    const long = 'word '.repeat(400); // roughly 500 tokens
+    const long = 'word '.repeat(400);
     const chunks = chunkSourceBlocks(
       [block('a', long), block('b', long), block('c', long)],
       { targetTokens: 600 },
@@ -99,8 +91,6 @@ describe('sizing', () => {
   });
 
   it('splits an oversized block on line boundaries, not mid-row', () => {
-    // The oversized blocks in this collection are tables. A row cut in half produces a
-    // value with no header and a header with no value, and both read as complete.
     const rows = Array.from({ length: 60 }, (_, i) => `Row ${i} | 1,234 | 5,678 | 9,012`);
     const chunks = chunkSourceBlocks([block('t', rows.join('\n'), { blockType: 'table' })], {
       targetTokens: 100,
@@ -111,7 +101,6 @@ describe('sizing', () => {
     for (const chunk of chunks) {
       const body = chunk.text.split('\n').filter((line) => line.startsWith('Row '));
       for (const line of body) {
-        // Every row that appears, appears whole.
         expect(line).toMatch(/^Row \d+ \| 1,234 \| 5,678 \| 9,012$/);
       }
     }

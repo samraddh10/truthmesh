@@ -1,11 +1,3 @@
-/**
- * The extraction contract and the call around it.
- *
- * The interesting cases are all failures. A free endpoint under load returns prose,
- * fenced JSON, a Title Case predicate or a claim with no citation, and the plan's answer
- * to each is a bounded repair rather than an exception, so that is what is tested.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { CompletionProvider, CompletionRequest, CompletionResult } from '../model/index.ts';
@@ -43,7 +35,6 @@ const validClaim = {
   quote: 'Revenue from services was 8,142 Cr in FY24.',
 };
 
-/** A provider that answers from a fixed script, so a call sequence is observable. */
 class ScriptedClient implements CompletionProvider {
   readonly mode = 'live' as const;
   readonly model = 'test/model';
@@ -74,7 +65,6 @@ describe('parseExtraction', () => {
   });
 
   it('rejects a numeric_value that is not a plain decimal string', () => {
-    // A currency symbol here is how a financial figure ends up going through a Number.
     const parsed = parseExtraction({
       claims: [{ ...validClaim, numeric_value: '₹8,142' }],
     });
@@ -90,7 +80,6 @@ describe('parseExtraction', () => {
   });
 
   it('rejects a claim that cites nothing', () => {
-    // A claim with no citation cannot be grounded, so there is nothing to review later.
     const parsed = parseExtraction({ claims: [{ ...validClaim, evidence_block_ids: [] }] });
     expect(parsed.ok).toBe(false);
   });
@@ -124,14 +113,11 @@ describe('buildExtractionMessages', () => {
   });
 
   it('tells the model the passage is data, not instruction', () => {
-    // Plan 4.2: PDF text is source data, embedded imperatives included.
     const [system] = buildExtractionMessages(chunk);
     expect(String(system?.content)).toContain('not instruction');
   });
 
   it('never puts a filename in the prompt', () => {
-    // Acceptance criterion A2 requires a renamed PDF to produce equivalent claims, which
-    // it cannot if the name is part of what the model is shown.
     const rendered = buildExtractionMessages(chunk).map((message) => String(message.content)).join('');
     expect(rendered).not.toContain('.pdf');
   });
@@ -170,7 +156,6 @@ describe('extractChunk', () => {
 
     expect(result.repaired).toBe(true);
     expect(result.claims).toHaveLength(1);
-    // The repair carries the rejected reply and the specific problem, not a bare retry.
     const repair = client.requests[1]!;
     const last = repair.messages[repair.messages.length - 1];
     expect(String(last?.content)).toContain('predicate');

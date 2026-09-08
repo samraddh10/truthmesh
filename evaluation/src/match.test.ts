@@ -1,12 +1,3 @@
-/**
- * Tests for the scorer's matching rule.
- *
- * Every figure in the evaluation report rests on this rule, so the cases that matter are
- * the ones where a lenient matcher would flatter the system: a quarter satisfying a claim
- * about the year, an unresolvable scale word passing as agreement, or two different
- * measures folded together because their names look alike.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { GoldClaim } from './goldset.ts';
@@ -71,8 +62,6 @@ describe('scale handling', () => {
   });
 
   it('refuses an unrecognised scale word rather than treating it as one', () => {
-    // "8,142 somethings" must not silently become "8,142", which would then agree with
-    // any unscaled figure of the same digits.
     expect(baseUnits('8142', 'gazillion')).toBeNull();
   });
 
@@ -89,9 +78,6 @@ describe('figure comparison', () => {
   });
 
   it('does not accept a near miss', () => {
-    // 81,415 million against a crore-rounded 8,142 is the P01 corroboration case. That is
-    // a judgement about whether two *sources* agree, and it is not extraction accuracy:
-    // the scorer asks only whether the system read the figure the page prints.
     expect(compareFigures(gold(), produced({ numericValue: '81415', scale: 'million' }))).toBe(
       'different',
     );
@@ -114,8 +100,6 @@ describe('predicate agreement', () => {
   });
 
   it('keeps distinct measures apart', () => {
-    // The plan names this pair specifically: revenue from operations must never be
-    // equated with total income.
     expect(predicatesAgree('revenue_from_operations', 'total_income')).toBe(false);
     expect(predicatesAgree('ebitda', 'adjusted_ebitda')).toBe(false);
   });
@@ -149,9 +133,6 @@ describe('matching a gold claim', () => {
   });
 
   it('matches a right value with the wrong period, and says the period is wrong', () => {
-    // The important case. Period is not a match condition, because a system that found
-    // the figure but mislabelled its period has made an extraction error worth seeing —
-    // not a miss, and certainly not a pass.
     const outcome = matchClaim(gold(), [produced({ periodLabel: 'Q4 FY24' })], resolve);
     expect(outcome.produced?.id).toBe('p1');
     expect(outcome.periodAgrees).toBe(false);
@@ -176,8 +157,6 @@ describe('locating a quote', () => {
   });
 
   it('does not fold digits or currency symbols', () => {
-    // The whole point of the check: a figure that is not on the page cannot be matched
-    // into existence by normalisation.
     expect(quoteLocates('₹8,143 Cr', block)).toBe(false);
     expect(quoteLocates('$8,142 Cr', block)).toBe(false);
   });

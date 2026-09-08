@@ -1,15 +1,3 @@
-/**
- * The documents view: upload, status, pages processed, accepted facts and errors.
- *
- * Plan 7.2 names those five together, and they are shown in one table because a reviewer
- * judging whether a run went well needs them side by side. A document with three pages
- * processed and zero accepted facts is a different situation from one with three pages
- * processed and forty, and neither figure says so alone.
- *
- * Polling is on only while something is actually running (plan 2.2's two-second figure).
- * A finished collection stops making requests.
- */
-
 import { useCallback, useRef, useState } from 'react';
 
 import type { DocumentSummary, UploadResult } from '@superjoin/contracts';
@@ -18,9 +6,6 @@ import { listDocuments, retryRun, uploadDocuments } from './api.ts';
 import { Empty, ErrorNotice, Spinner, formatBytes, useAsync, usePolling } from './ui.tsx';
 
 function StageBadge({ run }: { run: NonNullable<DocumentSummary['latestRun']> }) {
-  // Stalled is reported ahead of the stage, because "extracting" on a run nothing has
-  // touched for five minutes is misleading on its own. Plan 2.3 requires interrupted work
-  // to be visible rather than silently stuck.
   if (run.stalled) {
     return (
       <span className="badge badge-needs_review" title="Not terminal, but nothing has touched it recently.">
@@ -80,7 +65,6 @@ function UploadResultLine({ result }: { result: UploadResult }) {
 
 export interface DocumentsViewProps {
   readonly collectionId: string;
-  /** Told to the shell so the facts and relationships tabs can refresh when a run lands. */
   onProcessingSettled(): void;
 }
 
@@ -95,8 +79,6 @@ export function DocumentsView({ collectionId, onProcessingSettled }: DocumentsVi
   const items = documents.data?.items ?? [];
   const running = items.some((item) => item.latestRun !== null && !item.latestRun.terminal);
 
-  // Latched so the transition from running to finished fires the callback exactly once,
-  // rather than on every poll after it.
   const wasRunning = useRef(false);
   const onSettled = useRef(onProcessingSettled);
   onSettled.current = onProcessingSettled;
@@ -174,8 +156,6 @@ export function DocumentsView({ collectionId, onProcessingSettled }: DocumentsVi
           {uploadError !== null ? <ErrorNotice error={uploadError} /> : null}
 
           {results !== null ? (
-            // Reported per file, because one request can legitimately produce an
-            // acceptance, a duplicate and a rejection at once.
             <ul className="small" style={{ margin: 0, paddingLeft: 20 }}>
               {results.map((result, position) => (
                 <UploadResultLine key={`${result.filename}-${position}`} result={result} />
@@ -264,8 +244,6 @@ export function DocumentsView({ collectionId, onProcessingSettled }: DocumentsVi
                       ) : null}
                     </td>
                     <td>
-                      {/* Offered only when it applies: the API refuses a retry on a run
-                          that is still progressing, and a button that 409s is noise. */}
                       {run !== null && (run.terminal || run.stalled) ? (
                         <button
                           type="button"

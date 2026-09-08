@@ -1,29 +1,8 @@
-/**
- * The hand-reviewed evaluation set, loaded and validated.
- *
- * `goldset.json` is a contract, not a fixture: the pipeline never reads it, and nothing
- * in it may reach a prompt. It is parsed with Zod here for the same reason the model's
- * replies are — a field that quietly changed shape would otherwise show up as a metric
- * that silently stopped measuring what it claims to.
- *
- * Every decimal is a string. Plan 4.1 forbids financial values through a JavaScript
- * number, and a scorer that parsed them would be comparing float-drifted figures against
- * exact ones and calling the difference an error.
- */
-
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 
-/** A decimal as written, optionally signed. Never parsed into a number here. */
 const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, 'must be a plain decimal string');
 
-/**
- * Absent and explicitly null mean the same thing here, and both become null.
- *
- * Not every claim is a figure: a director's role has a `raw_value` and no number at all,
- * and the set omits the numeric fields on those rather than writing nulls. Treating a
- * missing key as a schema violation would reject the set over a formatting choice.
- */
 function nullish<T extends z.ZodType>(inner: T) {
   return inner.nullish().transform((value) => value ?? null);
 }
@@ -31,14 +10,11 @@ function nullish<T extends z.ZodType>(inner: T) {
 export const goldClaimSchema = z.object({
   id: z.string(),
   document: z.string(),
-  /** Zero-based physical page index, the identifier every citation keys off. */
   physical_page: z.number().int().nonnegative(),
   printed_page_label: nullish(z.string()),
   subject: z.string(),
   predicate: z.string(),
-  /** Absent on claims that are not figures, such as a board role. */
   numeric_value: nullish(decimalString),
-  /** The value as printed, carried where the claim has no numeric form. */
   raw_value: nullish(z.string()),
   currency: nullish(z.string()),
   scale: nullish(z.string()),
@@ -51,7 +27,6 @@ export const goldClaimSchema = z.object({
   qualifiers: z.array(z.unknown()).optional(),
   notes: z.string().optional(),
   evidence_kind: z.enum(['narrative', 'table', 'chart', 'list']),
-  /** Located in the source page by hand during Phase 0.2. */
   quote: z.string().min(1),
 });
 export type GoldClaim = z.infer<typeof goldClaimSchema>;
@@ -96,16 +71,7 @@ export type Goldset = z.infer<typeof goldsetSchema>;
 
 export class GoldsetError extends Error {}
 
-/**
- * Reads and validates the set, then checks the references inside it.
- *
- * Zod cannot see that a pair names a claim that exists or that a claim names a document
- * that exists, and a dangling reference would silently drop a pair from the denominator
- * — quietly improving every rate computed from it.
- */
 export async function loadGoldset(path: string): Promise<Goldset> {
-  // Explicit UTF-8. The set contains the rupee sign, and a platform default of cp1252
-  // would decode it as three characters and fail every quote match that involves it.
   const raw = await readFile(path, 'utf8');
 
   let parsed: unknown;
@@ -160,16 +126,6 @@ export async function loadGoldset(path: string): Promise<Goldset> {
   return goldset;
 }
 
-/**
- * Maps an uploaded filename to the gold document it is.
- *
- * The gold set names documents by a stable id (`doc-01-prospectus`) and records the path
- * it was read from; the database knows only the name the file was uploaded under. They
- * are joined on the basename, which is what survives both. Matching on the uploaded name
- * alone would also make the whole evaluation depend on the ordinal filename prefixes that
- * plan 0.1 forbids the runtime to depend on — this is scoring rather than runtime, but
- * the join is written explicitly here so it is visible rather than assumed.
- */
 export function goldDocumentResolver(
   goldset: Goldset,
   filenameOf: (documentId: string) => string | undefined,
@@ -187,7 +143,6 @@ export function goldDocumentResolver(
   };
 }
 
-/** Claims that belong to at least one pair. The rest are extraction targets only. */
 export function pairedClaimIds(goldset: Goldset): Set<string> {
   const ids = new Set<string>();
   for (const pair of goldset.pairs) {

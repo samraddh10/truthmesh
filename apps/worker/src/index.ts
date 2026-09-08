@@ -1,19 +1,3 @@
-/**
- * Processing worker.
- *
- * Consumes document jobs from pg-boss and runs them to a terminal stage. This is the only
- * process that calls Bedrock and the only one that loads the local embedding model,
- * per the plan's service boundaries; the API holds neither.
- *
- * The full pipeline is registered here: parsing, the visual route, extraction,
- * normalization and comparison. A stage that cannot do its work does not fail the
- * document — a throttled chunk costs that chunk, an unavailable embedding model costs
- * semantic retrieval and not the exact channel — and every one of those degradations is
- * recorded against the run, so a document that finished with less than it should have
- * says so rather than looking complete.
- */
-
-// Before anything reads configuration. Node does not load .env on its own.
 import { loadConfig, loadDotEnvFile, requireModelAccess } from '@superjoin/config';
 
 loadDotEnvFile();
@@ -44,7 +28,6 @@ const config = loadConfig();
 const database = createDatabase(config.databaseUrl);
 const boss = createQueueClient(config.databaseUrl);
 
-/** Structured, so worker output stays separable from the API's in one Compose log stream. */
 function log(level: 'info' | 'error', message: string, fields: Record<string, unknown> = {}): void {
   const line = JSON.stringify({
     time: new Date().toISOString(),
@@ -57,18 +40,6 @@ function log(level: 'info' | 'error', message: string, fields: Record<string, un
   else console.log(line);
 }
 
-/**
- * The model client. Only the worker holds one, per the plan's service boundaries.
- *
- * A configured provider is the only way to obtain a completion, so an unconfigured
- * worker stops here rather than at the first document. Whether the credentials *work* is
- * settled by the first call; a run whose calls fail is reported failed, never completed
- * on substituted answers.
- *
- * The database handle is passed so the active provider is read per call rather than at
- * boot: the toggle in the interface header has to take effect in a worker nobody
- * restarted, and a client resolved once here could not do that.
- */
 try {
   requireModelAccess(config);
 } catch (error) {
@@ -78,14 +49,6 @@ try {
 
 const modelClient = createModelClient(config, database.db);
 
-/**
- * Publishes which providers this worker can actually reach.
- *
- * The interface has to grey out a provider with no credentials, and only this process
- * holds them — the API deliberately has no model access at all. Writing the capability
- * here keeps that boundary intact: the API reports what the worker published rather than
- * being handed keys so it can check for itself.
- */
 async function publishProviderAvailability(): Promise<void> {
   const available = configuredProviders(config);
   try {
@@ -105,32 +68,14 @@ async function publishProviderAvailability(): Promise<void> {
       .set({ availableProviders: available, updatedAt: new Date() })
       .where(eq(appSettings.id, row.id));
   } catch (error) {
-    // Not fatal. A worker that cannot publish its capability can still process
-    // documents; the interface just shows a staler picture of what is available.
     log('error', 'could not publish provider availability', {
       detail: (error as Error).message,
     });
   }
 }
 
-/**
- * The embedding model, loaded lazily on first use.
- *
- * Only the worker holds one, and constructing it costs nothing: the package and its
- * model download are pulled in when the first claim is embedded, so a worker that never
- * reaches comparison never pays for them.
- */
 const embeddings = createEmbeddingProvider(config);
 
-/**
- * The ordered pipeline stages.
- *
- * Parsing reads the text layer; the visual stage re-reads the pages parsing marked as
- * structured; extraction asks what each chunk asserts and grounds every answer in the
- * stored text; normalization makes the surviving claims comparable; comparison retrieves
- * candidate pairs and explains each one. The order is the dependency order, and each
- * stage moves the run into its own stage name so a progress poll says where the work is.
- */
 const STAGES: readonly StageHandler[] = [
   parsingStage,
   createVisualStage({
@@ -167,8 +112,6 @@ async function shutdown(signal: string, code = 0): Promise<void> {
 
   log('info', 'shutting down', { signal });
   try {
-    // Graceful: an in-flight job is allowed to finish rather than being abandoned
-    // mid-run, which would leave it to be reclaimed on expiry instead of completing.
     await boss.stop({ graceful: true, timeout: 30_000 });
     await closeDatabase(database);
   } catch (error) {
@@ -187,9 +130,6 @@ await ensureStorage(config.storageDir);
 const readiness = await checkReadiness('worker', database, config.storageDir);
 
 if (!readiness.ok) {
-  // Exiting non-zero rather than idling. A worker that cannot reach its database or its
-  // files will consume jobs and fail every one of them; being restarted is more useful
-  // than a process that looks alive while being unable to do any work.
   log('error', 'not ready', {
     database: readiness.database.detail,
     storage: readiness.storage.detail,
@@ -201,8 +141,6 @@ await startQueue(boss);
 
 await boss.work<DocumentJob>(
   DOCUMENT_QUEUE,
-  // One document at a time per worker. Concurrency is bounded by LLM_CONCURRENCY once
-  // model calls exist; until then a single slot keeps ordering easy to reason about.
   { batchSize: 1 },
   async ([job]) => {
     if (job === undefined) return;
@@ -216,8 +154,6 @@ await boss.work<DocumentJob>(
         job.data,
       );
       if (outcome.status === 'abandoned') {
-        // The run was deleted while the job waited. Logged rather than retried: there is
-        // nothing left to process and nothing to write to.
         log('info', 'abandoned', { runId: outcome.runId, reason: outcome.reason });
       } else {
         log('info', 'finished', {
@@ -227,8 +163,6 @@ await boss.work<DocumentJob>(
         });
       }
     } catch (error) {
-      // Rethrown so pg-boss applies the retry policy. The issue is already recorded
-      // against the run, so the failure is visible even while the job waits to retry.
       log('error', 'job failed, will retry if attempts remain', {
         runId: job.data.runId,
         error: (error as Error).message,

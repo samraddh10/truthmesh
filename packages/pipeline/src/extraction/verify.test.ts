@@ -1,12 +1,3 @@
-/**
- * Grounding checks.
- *
- * The properties tested here are the ones the acceptance criteria turn on: a quote either
- * is in the document or it is not, a claim the model both wrote and cited to its own
- * transcription is not verified by it, and a citation to a block that does not exist is a
- * rejection rather than an error.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { ExtractedClaim } from './contract.ts';
@@ -57,7 +48,6 @@ const options = (blocks: readonly EvidenceBlock[], nativeByPage?: Map<number, Ev
 
 describe('normalizeForMatch', () => {
   it('collapses the whitespace PDF extraction leaves inside numbers', () => {
-    // A figure typeset with a thin space between the groups is the same figure.
     expect(normalizeForMatch('8,142 Cr').text).toBe('8,142 Cr');
     expect(normalizeForMatch('  a   b  ').text).toBe('a b');
   });
@@ -72,7 +62,6 @@ describe('normalizeForMatch', () => {
   });
 
   it('does not change case', () => {
-    // Case is meaning, not encoding. Folding it would let a paraphrase pass as a quote.
     expect(normalizeForMatch('Revenue').text).toBe('Revenue');
   });
 
@@ -97,7 +86,6 @@ describe('locateQuote', () => {
   });
 
   it('refuses a paraphrase', () => {
-    // The check exists to tell a quote from a summary. This is the case it is for.
     expect(locateQuote('Revenue was about eight thousand crore', block().content)).toBeNull();
   });
 
@@ -108,7 +96,6 @@ describe('locateQuote', () => {
 
 describe('statesValue', () => {
   it('matches a figure across grouping conventions', () => {
-    // 81,415 in the western convention and 8,14,15 in the Indian one are one number.
     expect(statesValue(claim({ numeric_value: '81415' }), 'Revenue of 81,415 million')).toBe(true);
     expect(statesValue(claim({ numeric_value: '81415' }), 'Revenue of 8,14,15 million')).toBe(true);
   });
@@ -186,8 +173,6 @@ describe('verifyClaim', () => {
   });
 
   it('rejects a real quote that does not state the reported figure', () => {
-    // Citation existence and entailment are different questions, and this is the case
-    // that separates them: the passage is genuinely in the document and still fails.
     const content = 'Revenue from services grew during the year under review.';
     const result = verifyClaim(
       claim({ quote: content }),
@@ -200,8 +185,6 @@ describe('verifyClaim', () => {
   });
 
   it('holds a claim supported only by a transcription for review', () => {
-    // The model wrote the transcription and the claim. One system agreeing with itself
-    // is not verification, which plan 4.3 states outright.
     const transcription = block({ id: 'block-t', extractionMethod: 'model_transcription' });
     const result = verifyClaim(claim(), options([transcription]));
 
@@ -260,8 +243,6 @@ describe('decideClaimStatus', () => {
   });
 
   it('rejects when any located passage contradicts the reported value', () => {
-    // An unsupported row is not outvoted by a supported one. The claim cited a passage
-    // that does not say what it reports, and that is a finding, not noise.
     const status = decideClaimStatus(
       [
         { verification: 'verified_native_text', entailment: 'supported' },

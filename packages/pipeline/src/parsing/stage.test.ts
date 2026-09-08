@@ -1,12 +1,3 @@
-/**
- * The parsing stage, end to end against a real starter document and a live database.
- *
- * The properties here are about what actually lands in `source_blocks`: whether a
- * re-parse duplicates evidence, whether an unreadable page costs the document, and
- * whether the coordinate metadata plan 3.2 requires is really written rather than merely
- * declared in the schema.
- */
-
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -106,11 +97,8 @@ describe.skipIf(!reachable)('parseDocument', () => {
     expect(summary.pagesFailed).toBe(0);
     expect(summary.blocksWritten).toBeGreaterThan(0);
 
-    // docs/difficult-pages.md records four legitimately near-empty pages in this deck:
-    // the title slide, two dividers and the contact slide. They are counted, not failed.
     expect(summary.pagesEmpty).toBeGreaterThanOrEqual(4);
 
-    // The table and chart pages the Phase 0.2 notes identified should want a second read.
     expect(summary.pagesNeedingVisualRoute.length).toBeGreaterThan(5);
     expect(summary.pagesNeedingVisualRoute).toContain(7);
   }, 180_000);
@@ -128,8 +116,6 @@ describe.skipIf(!reachable)('parseDocument', () => {
       .limit(1);
 
     expect(block).toBeDefined();
-    // Plan 3.2 names origin, dimensions and rotation specifically, so that a stored box
-    // can be interpreted later without reopening the PDF.
     expect(block?.coordinateOrigin).toBe('bottom-left');
     expect(Number(block?.pageWidthPt)).toBeGreaterThan(0);
     expect(Number(block?.pageHeightPt)).toBeGreaterThan(0);
@@ -139,8 +125,6 @@ describe.skipIf(!reachable)('parseDocument', () => {
   });
 
   it('keeps the positioned runs alongside the reconstructed text', async () => {
-    // Plan 3.1 requires raw items to be preserved. This is what lets a chart value be
-    // re-bound to its axis by coordinate rather than by the order it arrived in.
     const [block] = await database.db
       .select()
       .from(sourceBlocks)
@@ -165,7 +149,6 @@ describe.skipIf(!reachable)('parseDocument', () => {
       )
       .limit(1);
 
-    // Physical page 5 of the deck prints "5" in the bottom-right corner.
     expect(block?.label).toBe('5');
   });
 
@@ -182,8 +165,6 @@ describe.skipIf(!reachable)('parseDocument', () => {
       .from(sourceBlocks)
       .where(eq(sourceBlocks.documentId, context.job.documentId));
 
-    // The unique index on (document, page, block index, parser version) is the cache
-    // plan 3.1 asks for: a re-parse under the same version writes nothing new.
     expect(after.length).toBe(before.length);
     expect(summary.blocksWritten).toBe(0);
   }, 180_000);
@@ -204,8 +185,6 @@ describe.skipIf(!reachable)('parseDocument', () => {
     const chunks = chunkSourceBlocks(rows);
     expect(chunks.length).toBeGreaterThan(0);
 
-    // The plan's exit condition for Phase 3: every chunk resolves to the correct source
-    // page. Checked against the stored rows rather than against the chunker's own output.
     const byId = new Map(rows.map((row) => [row.id, row]));
     for (const chunk of chunks) {
       expect(chunk.sourceBlockIds.length).toBeGreaterThan(0);
@@ -218,8 +197,6 @@ describe.skipIf(!reachable)('parseDocument', () => {
   }, 120_000);
 
   it('records an issue for an unreadable page without failing the document', async () => {
-    // A document whose page count overstates the file: pages past the end cannot be
-    // read. One bad page should cost that page, not the other twenty-seven.
     const summary = await parseDocument({ ...context, pageCount: 29 });
 
     expect(summary.pagesFailed).toBe(2);

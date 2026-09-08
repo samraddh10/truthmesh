@@ -1,12 +1,3 @@
-/**
- * The visual stage's behaviour when the model is unavailable.
- *
- * This is the part that matters most in practice. Measured on the free tier, the upstream
- * pool refuses a large share of requests, so these tests use stub clients to pin what
- * happens when it does: the document must stay usable, the failure must be recorded, and
- * the stage must stop asking once it is clear the answer is no.
- */
-
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,7 +41,6 @@ let storageDir: string;
 let context: ProcessingContext;
 let documentHash: string;
 
-/** A client that always refuses, the way a saturated free pool does. */
 const alwaysThrottled: CompletionProvider = {
   model: 'stub/throttled',
   async complete(): Promise<CompletionResult> {
@@ -58,7 +48,6 @@ const alwaysThrottled: CompletionProvider = {
   },
 };
 
-/** A client that answers with a valid transcription. */
 const answers: CompletionProvider = {
   model: 'stub/answers',
   async complete(): Promise<CompletionResult> {
@@ -134,7 +123,6 @@ beforeAll(async () => {
     pageCount: 27,
   };
 
-  // Native-text parsing first: the visual stage only revisits pages parsing marked.
   await parseDocument(context);
 }, 240_000);
 
@@ -146,8 +134,6 @@ afterAll(async () => {
 
 describe.skipIf(!reachable)('when the model is unavailable', () => {
   it('fails the run rather than leaving the page read from a text layer it distrusts', async () => {
-    // The page reached this stage because its native text was judged unusable. Returning
-    // a summary here would report the document as parsed with that page silently unread.
     const failure = await transcribeDocument(context, {
       client: alwaysThrottled,
       documentHash: () => documentHash,
@@ -156,15 +142,12 @@ describe.skipIf(!reachable)('when the model is unavailable', () => {
     expect(failure).toBeInstanceOf(ProcessingError);
     const error = failure as ProcessingError;
     expect(error.stage).toBe('parsing');
-    // Throttling is worth retrying; the queue decides when, not this stage.
     expect(error.failureClass).toBe('transient');
     expect(error.failureKind).toBe('provider_rate_limited');
     expect(error.physicalPage).not.toBeUndefined();
   }, 180_000);
 
   it('leaves the document usable, with its native-text blocks intact', async () => {
-    // The run failed, but nothing already written was rolled back: the retry starts from
-    // stored native text rather than from a blank document.
     const blocks = await database.db
       .select()
       .from(sourceBlocks)
@@ -185,7 +168,6 @@ describe.skipIf(!reachable)('when the model is unavailable', () => {
     expect(throttles[0]?.isTransient).toBe(true);
     expect(throttles[0]?.physicalPage).not.toBeNull();
 
-    // Recorded before the throw, so the failed run says which page it died on.
     expect(throttles[0]?.message).toMatch(/physical page \d+/);
   });
 });
@@ -208,20 +190,11 @@ describe.skipIf(!reachable)('when the model answers', () => {
 
     const mine = transcribed.filter((block) => block.documentId === context.job.documentId);
     expect(mine.length).toBeGreaterThan(0);
-    // Plan 4.3: a transcription cannot independently verify a claim extracted by the same
-    // model, so it must stay distinguishable from the document's own text.
     expect(mine[0]?.extractionMethod).toBe('model_transcription');
     expect(mine[0]?.content).toContain('8,142');
   }, 180_000);
 
   it('keeps the rendered page image as evidence', async () => {
-    // Plan 3.1 requires the original page image to be retained, so a reviewer can see
-    // what the model was actually shown.
-    //
-    // Scoped to this test's own document, as the transcription test above already is.
-    // `model_transcription` is not rare in a database that has processed anything real,
-    // and an unscoped `limit 1` returned another document's block whose image lives in
-    // the worker's storage volume rather than this test's temporary directory.
     const [block] = await database.db
       .select({ key: sourceBlocks.pageImageKey })
       .from(sourceBlocks)
@@ -238,9 +211,6 @@ describe.skipIf(!reachable)('when the model answers', () => {
   });
 
   it('does not transcribe a page it has already read under this model version', async () => {
-    // Scoped to this document, for the reason the test above gives: any database that has
-    // processed something real holds other documents' transcription blocks, and counting
-    // them all measures whatever else has run rather than what this test did.
     const transcribedPages = async (): Promise<Set<number>> => {
       const rows = await database.db
         .selectDistinct({ page: sourceBlocks.physicalPage })
@@ -265,21 +235,6 @@ describe.skipIf(!reachable)('when the model answers', () => {
 
     const after = await transcribedPages();
 
-    /**
-     * The cache is at the call, not at the write.
-     *
-     * The unique index always made a second insert a no-op, so a re-read could never
-     * duplicate a block — but the transcription that produced the row it collided with had
-     * already been paid for, and the page was read again to learn nothing. On a
-     * rate-limited tier that is the difference between a document finishing and a retry
-     * spending its whole quota on pages it had already done.
-     *
-     * So a second pass reads only what the first did not, and moves the document forward
-     * rather than back over itself.
-     */
-    // Nothing already read was dropped, and every page this pass read is one the first
-    // pass had not: the two sets are disjoint, and the document moved forward by exactly
-    // what was transcribed.
     expect([...before].filter((page) => !after.has(page))).toEqual([]);
     expect(summary.pagesTranscribed).toBe(after.size - before.size);
     expect(summary.pagesTranscribed).toBeGreaterThan(0);
@@ -288,8 +243,6 @@ describe.skipIf(!reachable)('when the model answers', () => {
 
 describe('renderTranscription', () => {
   it('keeps the unit note with the rows it applies to', () => {
-    // A figure without its unit is not a fact. The unit note is the table's, not the
-    // cell's, so it has to survive flattening.
     const text = renderTranscription({
       tables: [
         {

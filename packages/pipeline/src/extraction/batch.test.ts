@@ -1,12 +1,3 @@
-/**
- * What packing chunks together is allowed to change, and what it is not.
- *
- * The saving is real but small; a citation resolved to the wrong block is not small. So
- * most of these are about the handles: that they stop colliding when several passages
- * share a request, that they still resolve to the block the chunk meant, and that a lone
- * passage is left exactly as it was.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { Chunk } from '../parsing/chunk.ts';
@@ -49,15 +40,12 @@ describe('planBatches', () => {
   });
 
   it('sends an oversized chunk on its own rather than refusing it', () => {
-    // The ceiling governs what may be added to a request, not what may be asked at all.
     const batches = planBatches([chunk(1, 9000), chunk(2, 100)], { maxInputTokens: 1000 });
 
     expect(batches.map((batch) => batch.passages.length)).toEqual([1, 1]);
   });
 
   it('keeps chunks in reading order', () => {
-    // Not bin-packed. A batch whose passages come from page 3 and page 40 would fit
-    // marginally more into a request and would read as unrelated fragments.
     const batches = planBatches([chunk(1, 100), chunk(2, 100), chunk(3, 100)], {
       maxInputTokens: 250,
     });
@@ -77,8 +65,6 @@ describe('planBatches', () => {
   });
 
   it('makes handles unique across a batch, in the text and in the lookup', () => {
-    // Both chunks call their first block B1. Sent together, one of those has to give, or
-    // a citation to B1 resolves to whichever block happened to be registered last.
     const [batch] = planBatches([chunk(1, 100, 2), chunk(2, 100)], { maxInputTokens: 1000 });
 
     expect(batch?.passages[0]?.handles).toEqual(['P1B1', 'P1B2']);
@@ -116,8 +102,6 @@ describe('apportion', () => {
   });
 
   it('gives the rounding remainder to the last share rather than losing it', () => {
-    // The per-chunk figure is bookkeeping; what has to hold is that the shares add back
-    // up to what the request actually cost.
     const shares = apportion(10, [1, 1, 1]);
 
     expect(shares).toEqual([3, 3, 4]);

@@ -1,13 +1,3 @@
-/**
- * Rendering the measurements as Markdown.
- *
- * Written to be read by someone deciding whether to believe the system, so every rate
- * carries its denominator and every section that could not be measured says so instead
- * of printing a zero. A zero and "not measured" mean opposite things — the first is a
- * result, the second is an absence — and a report that conflated them would be worse
- * than no report.
- */
-
 import type { Goldset } from './goldset.ts';
 import type { StructureSummary } from './load.ts';
 import {
@@ -24,14 +14,6 @@ import {
 } from './metrics.ts';
 
 export interface ReportInput {
-  /**
-   * Absent on a collection with no reviewed sample.
-   *
-   * The held-out collection of plan 8.3 has none by design, and the gold-dependent
-   * sections are then omitted rather than printed as a column of "not measured" — an
-   * absent measurement and an unmeasurable one are different things, and only the second
-   * applies here.
-   */
   readonly goldset: Goldset | null;
   readonly collectionName: string;
   readonly collectionId: string;
@@ -49,7 +31,6 @@ function fraction(value: Rate): string {
   return `${asPercent(value)} (${value.numerator}/${value.denominator})`;
 }
 
-/** Says nothing rather than something misleading when a stage produced no output. */
 function measuredOr(condition: boolean, text: string, absent: string): string {
   return condition ? text : `_${absent}_`;
 }
@@ -84,7 +65,6 @@ export function renderReport(input: ReportInput): string {
     lines.push('');
   }
 
-  // Only meaningful where accuracy sections follow; a no-goldset report has none.
   if (!extracted && goldset !== null) {
     lines.push('> **No claims were extracted in this run, so every accuracy figure below is');
     lines.push('> unmeasured rather than zero.** The counts and the failure breakdown are real');

@@ -1,12 +1,3 @@
-/**
- * Number and unit normalization.
- *
- * The cases here are taken from `evaluation/goldset.json` rather than invented, because
- * the point of this file is not that multiplication works: it is that the specific
- * comparisons the collection contains come out the way a reader who did the arithmetic by
- * hand says they should.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { compareValues, normalizeValue, parseNumeric, scaleRatio } from './numbers.ts';
@@ -18,8 +9,6 @@ describe('parseNumeric', () => {
   });
 
   it('reads a loss printed in parentheses as negative', () => {
-    // The accounting convention. Reading (1,229) as positive would turn the FY21 EBITDA
-    // conflict into an agreement of the wrong sign.
     const parsed = parseNumeric('(1,229)');
     expect(parsed?.value.toString()).toBe('-1229');
     expect(parsed?.negative).toBe(true);
@@ -55,7 +44,6 @@ describe('parseNumeric', () => {
   });
 
   it('does not read a trailing year as the second end of a range', () => {
-    // "8,142 Cr in FY24" holds two numbers and is not a span.
     expect(parseNumeric('8,142 Cr in FY24')?.kind).toBe('point');
   });
 
@@ -73,9 +61,6 @@ describe('normalizeValue', () => {
   });
 
   it('carries the source rounding through the same multiplication', () => {
-    // 8,142 Cr is rounded to the crore, so it stands for a half-crore interval, not a
-    // half-rupee one. Getting this wrong is what makes the FY24 revenue pair look like a
-    // contradiction.
     const normalized = normalizeValue({ numericValue: '8142', scale: 'crore', currency: 'INR' })!;
     expect(normalized.roundingHalfWidth).toBe('5000000');
   });
@@ -92,8 +77,6 @@ describe('normalizeValue', () => {
   });
 
   it('declines to convert an unrecognised scale word rather than dropping it', () => {
-    // Silently ignoring "myriad" would report a figure orders of magnitude too small as
-    // if it were comparable with one that had been converted properly.
     const normalized = normalizeValue({ numericValue: '5', scale: 'myriad', currency: 'INR' })!;
     expect(normalized.unit).toBe('INR/myriad');
     expect(normalized.steps[0]?.step).toBe('unrecognised_scale');
@@ -108,8 +91,6 @@ describe('normalizeValue', () => {
 
 describe('compareValues', () => {
   it('agrees on the FY24 revenue pair from the gold set', () => {
-    // 8,142 Cr against 81,415 million: the crore figure is rounded, and the intervals
-    // the two roundings imply meet exactly. This is gold-set P01, expected corroborates.
     const deck = normalizeValue({ numericValue: '8142', scale: 'crore', currency: 'INR' })!;
     const report = normalizeValue({ numericValue: '81415', scale: 'million', currency: 'INR' })!;
 
@@ -117,8 +98,6 @@ describe('compareValues', () => {
   });
 
   it('disagrees on the FY21 EBITDA pair from the gold set', () => {
-    // (1,229) million against (1,003.79) million. Both are printed to at least the
-    // million, so no rounding explains a gap of 225 million.
     const report = normalizeValue({ numericValue: '-1229', scale: 'million', currency: 'INR' })!;
     const prospectus = normalizeValue({
       numericValue: '-1003.79',

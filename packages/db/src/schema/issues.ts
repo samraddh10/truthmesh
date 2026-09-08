@@ -1,14 +1,3 @@
-/**
- * Processing issues.
- *
- * Defined after the tables it points at, so the affected source block and claim carry
- * real foreign keys rather than loose identifiers.
- *
- * Issues are kept, never deleted. Acceptance requires a real observed failure to be
- * shown in the interface with how the system handled it, and this table is where that
- * evidence lives; a tidy-up that removed resolved issues would remove the record.
- */
-
 import {
   boolean,
   index,
@@ -35,22 +24,10 @@ export const processingIssues = pgTable(
 
     stage: runStage('stage').notNull(),
 
-    /**
-     * Open vocabulary rather than an enum: failure kinds accumulate as the system meets
-     * new documents, and a new kind must not require a migration.
-     */
     failureKind: text('failure_kind').notNull(),
 
-    /**
-     * Whether a retry could plausibly succeed.
-     *
-     * Plan 2.3 requires transient provider failures to be told apart from an invalid
-     * PDF, which no number of retries will fix. Nullable because the distinction is
-     * sometimes not yet known when the issue is first recorded.
-     */
     isTransient: boolean('is_transient'),
 
-    /** What the issue is about. All optional: a failure can precede having any of them. */
     physicalPage: integer('physical_page'),
     sourceBlockId: uuid('source_block_id').references(() => sourceBlocks.id, {
       onDelete: 'set null',
@@ -58,7 +35,6 @@ export const processingIssues = pgTable(
     claimId: uuid('claim_id').references(() => claims.id, { onDelete: 'set null' }),
 
     message: text('message').notNull(),
-    /** Provider error codes, stack context, retry timings: whatever aids diagnosis. */
     detail: jsonb('detail'),
 
     attemptCount: integer('attempt_count').notNull().default(1),

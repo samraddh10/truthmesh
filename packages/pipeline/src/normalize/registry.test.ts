@@ -1,18 +1,3 @@
-/**
- * The predicate registry.
- *
- * This exists because of a measured failure, and the tests are written against it: left to
- * itself, extraction produced 1,053 distinct predicates from 1,991 claims — `revenue`,
- * `revenue_amount`, `total_revenues` and `total_revenue_from_customers` all recorded
- * separately — and only two (entity, predicate) combinations appeared in more than one
- * document. Cross-document retrieval had nothing to match on, so corroboration could not
- * be reached at all.
- *
- * What the registry must do, therefore, is keep one measure to one name while still
- * letting a genuinely new kind of fact in, since plan 1.2 requires that to be data rather
- * than a migration.
- */
-
 import { randomUUID } from 'node:crypto';
 
 import {
@@ -51,8 +36,6 @@ async function seedCollection(): Promise<string> {
 
 describe('rendering the vocabulary for a prompt', () => {
   it('says nothing when the collection has no vocabulary yet', () => {
-    // The first document in a collection has nothing to reuse and is the one that
-    // establishes the names; an empty list must not become an empty instruction.
     expect(renderRegistry([])).toBe('');
   });
 
@@ -100,9 +83,6 @@ describe('resolving a name against the registry', () => {
   });
 
   it('does not resolve a name that merely looks similar', () => {
-    // Merging `revenue` into `revenue_from_operations` because they share a word is the
-    // conflation plan 5.3 forbids. Retrieval widens across related names on its own; it
-    // does not need the stored claim rewritten to do it.
     expect(canonicalFor('revenue', entries)).toBeNull();
     expect(canonicalFor('total_income', entries)).toBeNull();
   });
@@ -115,7 +95,6 @@ describe.skipIf(!reachable)('growing the vocabulary', () => {
       { name: 'revenue_from_operations', unit: 'INR' },
     ]);
 
-    // Stored normalized, which folds the plural: revenue_from_operations -> ..._operation.
     expect(result.added).toEqual(['revenue_from_operation']);
     const entries = await loadRegistry(database.db, collectionId);
     expect(entries).toHaveLength(1);
@@ -126,9 +105,6 @@ describe.skipIf(!reachable)('growing the vocabulary', () => {
     const collectionId = await seedCollection();
     await registerPredicates(database.db, collectionId, [{ name: 'revenue' }]);
 
-    // Head-term aliasing was tried here and removed. `revenue` and `revenue_growth` share
-    // a head and are a level and a rate, so automatic folding would manufacture agreement
-    // between two different measures — worse than the sprawl it was meant to cure.
     const result = await registerPredicates(database.db, collectionId, [
       { name: 'revenue_growth' },
     ]);
@@ -141,7 +117,6 @@ describe.skipIf(!reachable)('growing the vocabulary', () => {
     const collectionId = await seedCollection();
     await registerPredicates(database.db, collectionId, [{ name: 'revenue' }]);
 
-    // Aliases are for a judgement someone made, not one the system guessed.
     await database.db
       .update(predicateRegistry)
       .set({ aliases: ['total_revenues'] })
@@ -150,7 +125,6 @@ describe.skipIf(!reachable)('growing the vocabulary', () => {
     const entries = await loadRegistry(database.db, collectionId);
     expect(canonicalFor('total_revenues', entries)).toBe('revenue');
 
-    // And a name already covered by an alias is not added again.
     const result = await registerPredicates(database.db, collectionId, [
       { name: 'total_revenues' },
     ]);
@@ -161,8 +135,6 @@ describe.skipIf(!reachable)('growing the vocabulary', () => {
     const collectionId = await seedCollection();
     await registerPredicates(database.db, collectionId, [{ name: 'revenue' }]);
 
-    // Plan 1.2 requires a new fact type to be data rather than a migration, so the
-    // registry must not become a closed schema by the back door.
     const result = await registerPredicates(database.db, collectionId, [
       { name: 'board_role' },
       { name: 'registered_office_address' },
@@ -189,8 +161,6 @@ describe.skipIf(!reachable)('growing the vocabulary', () => {
     const b = await seedCollection();
 
     await registerPredicates(database.db, a, [{ name: 'revenue' }]);
-    // A collection is the comparison boundary, so two unrelated datasets must not teach
-    // each other vocabulary.
     expect(await loadRegistry(database.db, b)).toHaveLength(0);
   });
 });

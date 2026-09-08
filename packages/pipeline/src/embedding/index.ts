@@ -1,41 +1,12 @@
-/**
- * Claim embeddings, computed locally.
- *
- * Bedrock does serve embedding models, but routing every chunk of every document
- * all, so the retrieval side of plan 6.1 cannot use the same provider. It runs here
- * instead, through `@huggingface/transformers`, with a symmetric sentence-similarity
- * model at 768 dimensions so the existing `vector(768)` column is unchanged.
- *
- * Two properties of the text being embedded matter more than the model choice.
- *
- * The description carries the subject, the predicate and the qualifiers, and never the
- * value. Plan 6.1 asks for exactly this: an embedding of "revenue from services was
- * 8,142 crore" is dominated by its digits, and retrieval then ranks by numeric
- * coincidence rather than by what the claim is about — which is the opposite of what
- * candidate generation is for, since the pairs worth comparing are precisely the ones
- * whose numbers differ.
- *
- * The vectors are normalized, so cosine distance and inner product agree and pgvector's
- * `<=>` means what the retrieval code assumes it means.
- *
- * Loading is lazy and failure is survivable. The model is a download on first use, and a
- * worker that cannot fetch it must still produce relationships: candidate generation
- * falls back to the exact entity and predicate matching that plan 6.1 requires be kept
- * regardless, and the run records that semantic retrieval was unavailable.
- */
-
-/** What the vectors were made for. Recorded per row, because it changes what they mean. */
 export const EMBEDDING_TASK_TYPE = 'SEMANTIC_SIMILARITY';
 
 export interface EmbeddingProvider {
   readonly model: string;
   readonly dimensions: number;
   readonly taskType: string;
-  /** One vector per input, in the same order. Normalized to unit length. */
   embed(texts: readonly string[]): Promise<number[][]>;
 }
 
-/** A model that could not be loaded. Never fatal: retrieval degrades rather than stops. */
 export class EmbeddingUnavailableError extends Error {
   override readonly name = 'EmbeddingUnavailableError';
 
@@ -50,7 +21,6 @@ export class EmbeddingUnavailableError extends Error {
 export interface LocalEmbeddingOptions {
   readonly model: string;
   readonly dimensions: number;
-  /** Inputs per forward pass. Larger batches are faster and cost more memory. */
   readonly batchSize?: number;
 }
 
@@ -59,14 +29,6 @@ type FeatureExtractor = (
   options: { pooling: 'mean'; normalize: boolean },
 ) => Promise<{ tolist(): number[][] }>;
 
-/**
- * The local model, loaded on first use.
- *
- * The import is dynamic because the package pulls an ONNX runtime and a model download
- * behind it. A build that never embeds anything should not pay for either, and a worker
- * without network access on first run should fail at the point it tries to embed rather
- * than at startup.
- */
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   readonly taskType = EMBEDDING_TASK_TYPE;
 
@@ -96,8 +58,6 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 
       for (const vector of output.tolist()) {
         if (vector.length !== this.options.dimensions) {
-          // A width mismatch is a configuration error, not a bad input. Storing it would
-          // corrupt the column; comparing across widths is meaningless either way.
           throw new EmbeddingUnavailableError(
             `${this.options.model} returned ${vector.length} dimensions, but EMBEDDING_DIMENSIONS is ${this.options.dimensions}`,
             null,
@@ -149,7 +109,6 @@ export function createEmbeddingProvider(config: EmbeddingConfig): EmbeddingProvi
   });
 }
 
-/** The parts of a claim that describe what it is about, rather than what it says. */
 export interface ClaimDescription {
   readonly subject: string;
   readonly predicate: string;
@@ -159,14 +118,6 @@ export interface ClaimDescription {
   readonly qualifiers?: readonly { readonly name: string; readonly value: string }[];
 }
 
-/**
- * Builds the text a claim is embedded as.
- *
- * The value is left out on purpose; see the file header. The period and scope are kept,
- * because they describe the claim without dominating it, and because a retrieval that
- * cannot see them ranks a FY24 figure and a FY21 figure identically — which is fine for
- * recall and useless for reading the results.
- */
 export function describeClaim(claim: ClaimDescription): string {
   const parts = [claim.subject, claim.predicate.replace(/_/g, ' ')];
 
@@ -186,7 +137,6 @@ export function describeClaim(claim: ClaimDescription): string {
   return parts.join(', ');
 }
 
-/** Keeps an input inside the model's window without a tokenizer round trip. */
 function truncate(text: string): string {
   return text.length > 1200 ? text.slice(0, 1200) : text;
 }

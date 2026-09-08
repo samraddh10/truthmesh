@@ -34,8 +34,6 @@ describe('storage keys', () => {
   });
 
   it('refuses anything that is not a SHA-256 digest', () => {
-    // The key is the document's identity. Accepting a loose string here would let two
-    // different documents share a path.
     expect(() => documentStorageKey('not-a-hash')).toThrow(StorageError);
     expect(() => documentStorageKey(HASH.toUpperCase())).toThrow(StorageError);
   });
@@ -59,8 +57,6 @@ describe('storage keys', () => {
 
 describe('path resolution', () => {
   it('refuses a key that escapes the storage root', () => {
-    // Uploads are untrusted input, and this is the boundary where a traversal would
-    // take effect.
     for (const key of ['../outside.pdf', 'documents/../../outside.pdf', '/etc/passwd']) {
       expect(() => resolvePath(root, key), key).toThrow(StorageError);
     }
@@ -90,8 +86,6 @@ describe('reading and writing', () => {
     const key = documentStorageKey(contentHash(bytes));
     const target = await writeObject(root, key, bytes);
 
-    // The write goes to a temporary neighbour and is renamed, so a crash cannot leave a
-    // truncated PDF at a key the database already treats as complete.
     expect(await objectExists(root, `${key}.${process.pid}.tmp`)).toBe(false);
     expect(await readFile(target, 'utf8')).toBe('durable');
   });
@@ -108,15 +102,12 @@ describe('reading and writing', () => {
 
 describe('health', () => {
   it('confirms the volume is writable by writing to it', async () => {
-    // A directory that exists is not a directory this process can write to; the probe
-    // performs the access rather than assuming it.
     const health = await checkStorageHealth(root);
     expect(health.writable).toBe(true);
     expect(health.detail).toBe(null);
   });
 
   it('reports why an unusable root is unusable', async () => {
-    // A path whose parent is a file cannot become a directory.
     const bytes = new TextEncoder().encode('blocker');
     const key = documentStorageKey(contentHash(bytes));
     const filePath = await writeObject(root, key, bytes);

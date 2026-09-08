@@ -1,16 +1,3 @@
-/**
- * The facts view: every claim in the collection, filtered, with its evidence one click
- * away.
- *
- * Plan 7.2 asks for filters on document, entity, predicate and review status, and for
- * clicking through to the evidence. The filters are exactly those; the click opens the
- * drawer that shows the cited passage and the original page.
- *
- * Claims of every status are listed, including rejected ones. Plan 4.3 treats
- * needs_review as a real outcome and Phase 8.1 has to report abstention honestly, so a
- * view that quietly showed only accepted claims would misrepresent both.
- */
-
 import { useMemo, useState } from 'react';
 
 import type { FactDetail, FactSummary } from '@superjoin/contracts';
@@ -31,7 +18,6 @@ const PAGE_SIZE = 50;
 
 export interface FactsViewProps {
   readonly collectionId: string;
-  /** Set when arriving from the relationships view, so one claim can be shown alone. */
   readonly focusFactId?: string | undefined;
   onShowRelationships(claimId: string): void;
 }
@@ -75,8 +61,6 @@ export function FactsView({ collectionId, focusFactId, onShowRelationships }: Fa
   const items = facts.data?.items ?? [];
   const total = facts.data?.total ?? 0;
 
-  // Built from the rows on screen: the API returns the filename with each claim, so the
-  // document filter needs no extra request.
   const documentOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const item of items) seen.set(item.documentId, item.filename);
@@ -177,8 +161,6 @@ export function FactsView({ collectionId, focusFactId, onShowRelationships }: Fa
                   <td>
                     <div>{fact.entityLabel ?? fact.subject}</div>
                     {fact.entityLabel !== null && fact.entityLabel !== fact.subject ? (
-                      // The document's own wording is kept beside the resolved entity, so
-                      // a merge the reviewer disagrees with is visible rather than hidden.
                       <div className="small muted">as written: {fact.subject}</div>
                     ) : null}
                   </td>
@@ -341,8 +323,6 @@ export function FactsView({ collectionId, focusFactId, onShowRelationships }: Fa
                   <summary className="small muted">
                     How the normalized value was reached
                   </summary>
-                  {/* The audit trail plan 6.4 requires: an agreement should be traceable
-                      to a stated conversion rather than to a wide tolerance. */}
                   <pre className="mono quote" style={{ marginTop: 8, overflowX: 'auto' }}>
                     {JSON.stringify(detail.data.normalization, null, 2)}
                   </pre>

@@ -1,20 +1,9 @@
-/**
- * Claim embeddings.
- *
- * The description builder is tested unconditionally, because what goes into a vector
- * decides what retrieval can find. The model itself is tested only when it can be
- * loaded: it is a download on first use, and a suite that fails on a machine without
- * network access would be testing the network.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { LocalEmbeddingProvider, describeClaim } from './index.ts';
 
 describe('describeClaim', () => {
   it('leaves the value out of the embedded text', () => {
-    // Plan 6.1. An embedding dominated by digits ranks by numeric coincidence, which is
-    // the opposite of useful: the pairs worth comparing are the ones whose numbers differ.
     const text = describeClaim({
       subject: 'Delhivery Limited',
       predicate: 'revenue_from_services',
@@ -60,8 +49,6 @@ const provider = new LocalEmbeddingProvider({
   dimensions: 768,
 });
 
-// One short probe decides whether the model is available here. Downloading it is a
-// first-run cost, so the timeout is generous and the failure is a skip, not a red test.
 const modelAvailable = await provider
   .embed(['probe'])
   .then(() => true)
@@ -77,8 +64,6 @@ describe.skipIf(!modelAvailable)('LocalEmbeddingProvider', () => {
   }, 120_000);
 
   it('places two wordings of one claim closer than two different claims', async () => {
-    // The property retrieval actually depends on. Not a quality benchmark: it checks
-    // that the vectors mean what the candidate search assumes they mean.
     const [a, b, c] = await provider.embed([
       'Delhivery Limited, revenue from services, consolidated, FY2024',
       'Delhivery Limited, service revenue, consolidated, FY2024',
@@ -90,8 +75,6 @@ describe.skipIf(!modelAvailable)('LocalEmbeddingProvider', () => {
   }, 120_000);
 
   it('rejects a width that does not match the stored column', async () => {
-    // Storing a vector of the wrong width corrupts the column, and comparing across
-    // widths is meaningless whether or not it fits.
     const wrong = new LocalEmbeddingProvider({ model: provider.model, dimensions: 384 });
     await expect(wrong.embed(['anything'])).rejects.toThrow(/dimensions/);
   }, 120_000);

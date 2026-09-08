@@ -1,17 +1,3 @@
-/**
- * The evidence drawer: the cited passage, and the original page it came from.
- *
- * Plan 7.3 sets the bar. Navigating to the correct physical page is core; region
- * highlighting is optional. So the page is rendered from the original PDF with PDF.js and
- * the quoted passage is displayed separately, above it, rather than being searched for in
- * the rendering. When a bounding box was stored the region is outlined as well, but
- * nothing depends on that box existing.
- *
- * The passage shown is the stored quote, not a re-extraction. Verification already decided
- * whether that text is in the document, and re-deriving it here would quietly replace an
- * audited answer with an unaudited one.
- */
-
 import { useEffect, useRef, useState } from 'react';
 
 import type { EvidenceItem } from '@superjoin/contracts';
@@ -19,10 +5,6 @@ import type { EvidenceItem } from '@superjoin/contracts';
 import { documentFileUrl } from './api.ts';
 import { ENTAILMENT_LABEL, VERIFICATION_LABEL, pageLabel, Spinner } from './ui.tsx';
 
-/**
- * PDF.js ships its worker as a separate module. Vite is told to build it as one and hand
- * back a URL, which keeps parsing off the main thread without a copy step or a CDN.
- */
 async function loadPdfjs() {
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -34,19 +16,11 @@ async function loadPdfjs() {
 
 interface PageViewProps {
   readonly documentId: string;
-  /** Zero-based physical page index, which is what every citation keys off. */
   readonly physicalPage: number;
   readonly bbox: EvidenceItem['block']['bbox'];
   readonly pageRotation: number;
 }
 
-/**
- * Renders one physical page of one document.
- *
- * The document is opened per drawer rather than cached globally. A reviewer looks at a
- * handful of pages and then closes it, and a cache that outlived the drawer would hold a
- * whole PDF in memory for a view nobody is looking at.
- */
 function PageView({ documentId, physicalPage, bbox, pageRotation }: PageViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,13 +37,10 @@ function PageView({ documentId, physicalPage, bbox, pageRotation }: PageViewProp
       try {
         const pdfjs = await loadPdfjs();
         const task = pdfjs.getDocument({ url: documentFileUrl(documentId) });
-        // The loading task owns the worker, so tearing that down is what releases the
-        // document; the proxy itself has no destroy of its own.
         cleanup = () => void task.destroy();
         const pdf = await task.promise;
         if (!live) return;
 
-        // PDF.js numbers pages from one; every stored citation is zero-based.
         const pageNumber = physicalPage + 1;
         if (pageNumber < 1 || pageNumber > pdf.numPages) {
           setError(
@@ -85,8 +56,6 @@ function PageView({ documentId, physicalPage, bbox, pageRotation }: PageViewProp
         const canvas = canvasRef.current;
         if (canvas === null) return;
 
-        // Rendered at the device pixel ratio and scaled back down in CSS, so small print
-        // in a financial table stays readable rather than resampled to mush.
         const ratio = Math.min(window.devicePixelRatio || 1, 2);
         const viewport = page.getViewport({ scale: 1.5 * ratio });
         canvas.width = Math.floor(viewport.width);
@@ -103,9 +72,6 @@ function PageView({ documentId, physicalPage, bbox, pageRotation }: PageViewProp
         await page.render({ canvas, canvasContext: context, viewport }).promise;
         if (!live) return;
 
-        // Optional per plan 7.3. Drawn through the same viewport transform the page was
-        // rendered with, so it accounts for scale and rotation instead of assuming
-        // neither applies.
         if (bbox !== null) {
           const [x1, y1] = viewport.convertToViewportPoint(bbox.x, bbox.y);
           const [x2, y2] = viewport.convertToViewportPoint(
@@ -164,14 +130,6 @@ export interface EvidenceDrawerProps {
   onClose(): void;
 }
 
-/**
- * Shows every evidence link for one claim, one page at a time.
- *
- * Each item states its verification and its entailment as two separate lines. Plan 4.3
- * requires that separation to survive into the interface: a quote that is genuinely in
- * the document and still fails to support the claim is a finding a reviewer must be able
- * to read off the screen, and one combined "valid" mark would erase it.
- */
 export function EvidenceDrawer({
   title,
   claimStatement,

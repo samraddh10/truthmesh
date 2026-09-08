@@ -1,18 +1,3 @@
-/**
- * Relationship endpoints: the filtered list and one relationship in full.
- *
- * A relationship is returned with both claims attached rather than as a pair of ids. Plan
- * 6.4 requires the original claims to survive comparison untouched and forbids replacing
- * conflicting values with a single resolved truth, so the two claims are the answer, not
- * a lookup the caller performs afterwards.
- *
- * No confidence figure is returned, because none is stored. Plan 6.4 forbids presenting a
- * model-generated score as a calibrated probability, and a number on the screen would be
- * read as one no matter how it were labelled. What is returned instead is the rationale,
- * the differing context dimensions, the reasons for any remaining uncertainty, and the
- * deterministic checks the classifier was given.
- */
-
 import {
   relationshipLabelSchema,
   relationshipQuerySchema,
@@ -33,10 +18,8 @@ export interface RelationshipRouteDependencies {
   readonly ingestion: IngestionContext;
 }
 
-/** The six labels of plan 6.3, taken from the contract so the two cannot drift apart. */
 const relationshipLabelValues = relationshipLabelSchema.options;
 
-/** Stored as JSONB, so re-checked here rather than trusted by shape. */
 function readContextDifferences(value: unknown): ContextDifferenceContract[] {
   if (!Array.isArray(value)) return [];
   const dimensions = new Set([
@@ -103,8 +86,6 @@ export async function registerRelationshipRoutes(
     const conditions: SQL[] = [eq(relationships.collectionId, collectionId)];
     if (label !== undefined) conditions.push(eq(relationships.label, label));
     if (claimId !== undefined) {
-      // Either side: a claim is not "the first one" in any meaningful sense, and a filter
-      // that only matched claim_a would hide half of a claim's own comparisons.
       conditions.push(
         or(eq(relationships.claimAId, claimId), eq(relationships.claimBId, claimId))!,
       );
@@ -120,8 +101,6 @@ export async function registerRelationshipRoutes(
         .limit(limit)
         .offset(offset),
       db.select({ total: count() }).from(relationships).where(where),
-      // Counted across the collection rather than the filtered set, so the label chips
-      // still show what else is there after one of them has been chosen.
       db
         .select({ label: relationships.label, total: count() })
         .from(relationships)
@@ -135,8 +114,6 @@ export async function registerRelationshipRoutes(
     const items: RelationshipSummary[] = rows.flatMap((row) => {
       const claimA = details.get(row.claimAId);
       const claimB = details.get(row.claimBId);
-      // Both claims cascade-delete with their document, so a relationship without them is
-      // a row mid-deletion rather than something to render half of.
       if (claimA === undefined || claimB === undefined) return [];
 
       return [
@@ -158,10 +135,6 @@ export async function registerRelationshipRoutes(
       ];
     });
 
-    // Every label, including the ones with no rows. A label absent from the map and a
-    // label with zero rows mean the same thing to a reader, and returning all six keeps
-    // the wire shape complete: the chips can show "contradicts 0", which is a real answer
-    // about this collection rather than a gap the interface has to paper over.
     const counts = Object.fromEntries(
       relationshipLabelValues.map((name) => [name, 0]),
     ) as RelationshipList['counts'];
@@ -218,8 +191,6 @@ export async function registerRelationshipRoutes(
       promptVersion: row.promptVersion,
       claimA,
       claimB,
-      // Inputs to classification, not proof of the label (plan 6.2). Returned so a
-      // reviewer can see what the classifier was working from.
       deterministicChecks: row.deterministicChecks ?? null,
       supportingEvidenceIds: readStringArray(row.supportingEvidenceIds),
       createdAt: row.createdAt.toISOString(),

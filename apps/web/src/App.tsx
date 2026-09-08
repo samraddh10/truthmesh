@@ -1,16 +1,3 @@
-/**
- * The shell: pick a collection, then move between the four views.
- *
- * A collection is chosen first and is never implicit. It is the boundary within which
- * comparisons run (plan 0.1 and 6.1), and an interface that let a reviewer drift between
- * collections without noticing would invite exactly the cross-dataset comparison the
- * system itself refuses to make.
- *
- * The views are the three plan 7.2 names, plus the issues view plan 7.3 asks for. Issues
- * are a tab rather than a panel because a real observed failure is part of what the work
- * has to demonstrate, and a collapsed panel is not where a reviewer would find it.
- */
-
 import { useCallback, useState } from 'react';
 
 import type { CollectionResponse } from '@superjoin/contracts';
@@ -37,13 +24,10 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('documents');
   const [focusClaimId, setFocusClaimId] = useState<string | undefined>(undefined);
-  // Bumped when processing finishes, to remount the data views so they refetch.
   const [generation, setGeneration] = useState(0);
   const [creating, setCreating] = useState(false);
 
   const items = collections.data ?? [];
-  // Falls back to the first collection so a reviewer opening the app for the first time
-  // lands somewhere real rather than on an empty chooser.
   const collectionId = selectedId ?? items[0]?.id ?? null;
 
   const createNamed = useCallback(async () => {

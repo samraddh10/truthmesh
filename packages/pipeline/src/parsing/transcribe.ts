@@ -1,23 +1,3 @@
-/**
- * The visual route: reading a difficult page with the multimodal model.
- *
- * Plan section 3.1 sends table-heavy, scanned or garbled pages to the model as an image
- * together with their native text, and asks for structured rows and cells with headings,
- * units and footnotes. What comes back is stored as `model_transcription`, never as
- * source text, because plan 4.3 is explicit that a transcription cannot independently
- * verify a claim extracted by the same model. The page image is kept as evidence so a
- * reviewer can see what the model was shown.
- *
- * The design constraint that shaped this file is availability rather than capability.
- * Measured on the free tier, the shared upstream pool returns 429 for a large share of
- * requests, so throttling is an ordinary event here. A page that cannot be transcribed
- * must therefore leave the document usable: the native-text blocks for that page are
- * already stored, the failure is recorded against the run, and the run finishes
- * `completed_with_issues` rather than failing outright. The alternative — treating a
- * throttled page as a document-level failure — would make the whole pipeline as reliable
- * as the least reliable minute of a free API.
- */
-
 import { z } from 'zod';
 
 import type { Database } from '@superjoin/db';
@@ -33,7 +13,6 @@ import {
 import { pageImageStorageKey, writeObject } from '../storage.ts';
 import { renderPage } from './render.ts';
 
-/** Bumped when the prompt or schema changes what the model returns. */
 export const TRANSCRIPTION_PROMPT_VERSION = 'table-transcribe@1';
 
 const cellSchema = z.object({
@@ -56,7 +35,6 @@ const transcriptionSchema = z.object({
 
 export type Transcription = z.infer<typeof transcriptionSchema>;
 
-/** The JSON Schema sent as `response_format`. Mirrors the Zod shape above. */
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
@@ -107,7 +85,6 @@ export interface TranscribeOptions {
   readonly client: CompletionProvider;
   readonly storageDir: string;
   readonly documentHash: string;
-  /** Render scale. Small type in financial tables needs more than the native size. */
   readonly scale?: number;
   readonly maxTokens?: number;
 }
@@ -115,21 +92,12 @@ export interface TranscribeOptions {
 export interface TranscriptionResult {
   readonly physicalPage: number;
   readonly transcription: Transcription;
-  /** Where the rendered page was stored, kept as evidence per plan 3.1. */
   readonly pageImageKey: string;
   readonly servedByModel: string;
   readonly promptTokens: number;
   readonly completionTokens: number;
 }
 
-/**
- * Transcribes one page.
- *
- * The native text is supplied alongside the image deliberately. The model reads a table's
- * structure from the picture, but the digits are more reliably had from the text layer,
- * and giving it both lets it agree with the document rather than re-read every figure
- * from pixels.
- */
 export async function transcribePage(
   bytes: Uint8Array,
   physicalPage: number,
@@ -138,7 +106,6 @@ export async function transcribePage(
 ): Promise<TranscriptionResult> {
   const rendered = await renderPage(bytes, physicalPage, { scale: options.scale ?? 2 });
 
-  // Stored before the call, so the evidence exists even if the model never answers.
   const pageImageKey = pageImageStorageKey(options.documentHash, physicalPage);
   await writeObject(options.storageDir, pageImageKey, rendered.bytes);
 
@@ -166,15 +133,11 @@ export async function transcribePage(
     maxTokens: options.maxTokens ?? 8000,
   });
 
-  // Parsed with Zod after the fact, never trusted because response_format was sent. A
-  // free endpoint may ignore the schema under load, and plan 4.1 requires the reply to be
-  // validated before it is accepted.
   const parsed = transcriptionSchema.safeParse(extractJson(result.text));
   if (!parsed.success) {
     throw new ModelError(
       `transcription did not match the schema: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
       'schema_violation',
-      // Worth one more attempt: the model often complies on a retry.
       true,
     );
   }
@@ -189,7 +152,6 @@ export async function transcribePage(
   };
 }
 
-/** Flattens a transcription into the text stored on a block. */
 export function renderTranscription(transcription: Transcription): string {
   return transcription.tables
     .map((table) => {
@@ -202,13 +164,6 @@ export function renderTranscription(transcription: Transcription): string {
     .join('\n\n');
 }
 
-/**
- * Writes a transcription as source blocks.
- *
- * `model_transcription` rather than `native_text`, which is what keeps a model's reading
- * distinguishable from the document's own text. A claim supported only by these blocks
- * cannot be accepted on that evidence alone.
- */
 export async function persistTranscription(
   db: Database,
   documentId: string,
@@ -235,8 +190,6 @@ export async function persistTranscription(
     printedPageLabel: null,
     blockType: 'table' as const,
     extractionMethod: 'model_transcription' as const,
-    // Offset so a transcription block can never collide with a native-text block index
-    // on the same page under a different parser version.
     blockIndex: 10_000 + index,
     content: renderTranscription({ tables: [table] }),
     tableHeaders: table.rows[0]?.map((cell) => cell.columnHeader) ?? null,
@@ -252,7 +205,6 @@ export async function persistTranscription(
   return rows.length;
 }
 
-/** Pages that already carry a native-text table block, which are the ones worth re-reading. */
 export async function pagesNeedingTranscription(
   db: Database,
   documentId: string,
@@ -273,18 +225,6 @@ export async function pagesNeedingTranscription(
   const candidates = rows.map((row) => row.physicalPage);
   if (producedBy === undefined) return candidates;
 
-  /**
-   * Pages this model has already transcribed under this prompt.
-   *
-   * The native table blocks stay on the page after a transcription — `verifyClaim` needs
-   * them as the independent witness — so their presence cannot mean the page is still
-   * owed a reading. Without this a retry re-transcribed every page it had already done,
-   * which on a rate-limited tier is not merely wasteful: the run spends its whole quota
-   * redoing settled pages and fails again at the same place, one page further on at best.
-   *
-   * Keyed on `producedBy`, which carries the model and the prompt version, so a changed
-   * model or prompt reads the page again rather than inheriting an older reading.
-   */
   const done = await db
     .selectDistinct({ physicalPage: sourceBlocks.physicalPage })
     .from(sourceBlocks)

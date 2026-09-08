@@ -1,21 +1,3 @@
-/**
- * The visual-transcription stage.
- *
- * Runs after parsing, over the pages parsing marked as structured. A page reaches this
- * stage only because its text layer was judged unusable, which is what decides how a
- * failure here is treated.
- *
- *   - A provider that did not answer fails the run. Carrying on would leave the page
- *     read from a text layer already known to be wrong, and nothing downstream could
- *     tell that page from one the model had actually transcribed. Throttling and
- *     timeouts are raised as transient, so the queue retries them with backoff; a
- *     refused key is permanent and stops at once.
- *   - A page that failed to render still costs only itself. The provider answered — or
- *     was never asked — so the run continues and reports the page as failed.
- *   - A budget caps how many pages are attempted per run. Without one, a hundred-page
- *     document spends hours in backoff and the run looks stalled while working correctly.
- */
-
 import type { Database } from '@superjoin/db';
 
 import { ModelError, type CompletionProvider } from '../model/index.ts';
@@ -33,9 +15,7 @@ import {
 
 export interface VisualStageOptions {
   readonly client: CompletionProvider;
-  /** SHA-256 of the document, used to key the stored page images. */
   readonly documentHash: (context: ProcessingContext) => Promise<string> | string;
-  /** Most pages to attempt in one run. */
   readonly maxPages?: number;
   readonly scale?: number;
 }
@@ -58,8 +38,6 @@ export async function transcribeDocument(
   const { db } = context.database;
   const maxPages = options.maxPages ?? DEFAULTS.maxPages;
 
-  // Resolved before the candidates, because it is part of asking which pages still need
-  // reading: a page already transcribed by this model under this prompt does not.
   const producedBy = `${options.client.model}/${TRANSCRIPTION_PROMPT_VERSION}`;
 
   const candidates = await pagesNeedingTranscription(
@@ -86,9 +64,6 @@ export async function transcribeDocument(
   let blocksWritten = 0;
 
   for (const physicalPage of selected) {
-    // One model call per page and no counter to report, so the run's heartbeat would
-    // otherwise go untouched for the whole visual route and a working document would be
-    // reported as stalled. See the same note in the normalization stage.
     await heartbeat(db, context.job.runId);
 
     try {
@@ -123,10 +98,6 @@ export async function transcribeDocument(
         physicalPage,
       });
 
-      // A provider that did not answer fails the run. The page's native-text blocks are
-      // stored either way, but this stage was reached precisely because that text layer
-      // was judged unusable, so continuing would leave the page silently unread. A page
-      // that failed to render is a different matter and still costs only itself.
       if (modelError !== null) {
         throw new ProcessingError(
           `transcription call failed on physical page ${physicalPage}: ${modelError.message}`,
@@ -147,12 +118,6 @@ export async function transcribeDocument(
   };
 }
 
-/**
- * Builds the stage.
- *
- * A factory rather than a constant, because the stage needs the model client and the
- * worker is the only process that may hold one.
- */
 export function createVisualStage(options: VisualStageOptions): StageHandler {
   return {
     stage: 'parsing',

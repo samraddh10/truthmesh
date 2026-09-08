@@ -1,14 +1,3 @@
-/**
- * The Bedrock client and the contracts around it.
- *
- * The interesting cases are the places Bedrock differs from the chat-completions shape
- * the rest of the pipeline was written against: system prompts are a separate field, a
- * schema is a forced tool call rather than `response_format`, images are typed blocks
- * rather than data URLs, and failures are named exceptions rather than status codes.
- * Each of those is somewhere a wrong assumption would fail at runtime against a real
- * account, so each is pinned here.
- */
-
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const send = vi.fn();
@@ -33,7 +22,6 @@ const OPTIONS = {
   maxRetries: 0,
 };
 
-/** What Bedrock returns for a plain text answer. */
 function textReply(text: string) {
   return {
     output: { message: { content: [{ text }] } },
@@ -42,7 +30,6 @@ function textReply(text: string) {
   };
 }
 
-/** What Bedrock returns when a forced tool call is satisfied. */
 function toolReply(name: string, input: unknown) {
   return {
     output: { message: { content: [{ toolUse: { name, input, toolUseId: 't1' } }] } },
@@ -74,7 +61,6 @@ describe('BedrockClient', () => {
     });
 
     const input = send.mock.calls[0]?.[0].input;
-    // Bedrock rejects a system role inside `messages` outright rather than ignoring it.
     expect(input.system).toEqual([{ text: 'You extract claims.' }]);
     expect(input.messages).toHaveLength(1);
     expect(input.messages[0].role).toBe('user');
@@ -94,12 +80,8 @@ describe('BedrockClient', () => {
 
     const input = send.mock.calls[0]?.[0].input;
     expect(input.toolConfig.tools[0].toolSpec.name).toBe('extracted_claims');
-    // Required rather than auto: the caller asked for a shape, so prose is not an
-    // acceptable alternative to calling the tool.
     expect(input.toolConfig.toolChoice).toEqual({ tool: { name: 'extracted_claims' } });
 
-    // Handed back stringified so callers run one parse path whether a schema was used or
-    // not, which is what lets extractJson and Zod stay unchanged.
     expect(extractJson(result.text)).toEqual(claims);
     expect(result.promptTokens).toBe(20);
     expect(result.completionTokens).toBe(30);
@@ -132,7 +114,6 @@ describe('BedrockClient', () => {
     });
 
     const block = send.mock.calls[0]?.[0].input.messages[0].content[1];
-    // Bedrock names the format itself and takes raw bytes, not a data URL.
     expect(block.image.format).toBe('png');
     expect(Buffer.from(block.image.source.bytes)).toEqual(Buffer.from([137, 80, 78, 71]));
   });
@@ -147,12 +128,6 @@ describe('BedrockClient', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  /**
-   * The distinction the extraction stage's give-up rule depends on.
-   *
-   * Throttling and validation are both 400-family on the wire, and one clears on its own
-   * while the other never will. Classifying by status code would collapse them.
-   */
   it('treats throttling as retryable and validation as permanent', async () => {
     send.mockRejectedValue(awsError('ThrottlingException', 429));
     await expect(
@@ -173,8 +148,6 @@ describe('BedrockClient', () => {
       client.complete({ messages: [{ role: 'user', content: 'x' }] }),
     ).rejects.toMatchObject({ kind: 'provider_access_denied', retryable: false });
 
-    // Model access is granted per region in the console; eight retries only delay the
-    // message that says so.
     expect(send).toHaveBeenCalledTimes(1);
   });
 

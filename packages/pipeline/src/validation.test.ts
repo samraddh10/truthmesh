@@ -1,12 +1,3 @@
-/**
- * Upload validation, exercised against real specimens rather than mocks.
- *
- * `tests/fixtures/encrypted.pdf` is genuinely AES-256 password protected, so the
- * encrypted path is proved end to end and not only through a synthetic error object.
- * The malformed cases are cut from a real starter document, because a hand-written broken
- * PDF tends to fail differently from one that was truncated in transit.
- */
-
 import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
@@ -27,17 +18,12 @@ describe('accepting a valid PDF', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // The earnings deck is 27 physical pages, per docs/scope.md.
     expect(result.pageCount).toBe(27);
     expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(result.byteSize).toBeGreaterThan(0);
   });
 
   it("leaves the caller's buffer intact", async () => {
-    // PDF.js takes ownership of the buffer it is handed and detaches it. Passing the
-    // original would leave ingestion holding zero bytes and writing an empty file to
-    // storage under a hash computed from the real content, which nothing downstream
-    // would catch.
     const bytes = await read(EARNINGS_DECK);
     const sizeBefore = bytes.byteLength;
 
@@ -52,7 +38,6 @@ describe('accepting a valid PDF', () => {
       validateUpload(await read(THREE_PAGES), GENEROUS),
     ]);
 
-    // Duplicate detection depends on this, so it is asserted rather than assumed.
     expect(first.ok && second.ok && first.contentHash === second.contentHash).toBe(true);
   });
 });
@@ -66,8 +51,6 @@ describe('rejecting with a specific reason', () => {
   });
 
   it('names a file over the size limit, and does so before parsing it', async () => {
-    // A one-byte ceiling against a real PDF: if size were checked after parsing, this
-    // would still pass validation and only fail later.
     const result = await validateUpload(await read(EARNINGS_DECK), limitsFromConfig(0.000001, 300));
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -86,14 +69,11 @@ describe('rejecting with a specific reason', () => {
     const result = await validateUpload(await read(ENCRYPTED), GENEROUS);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // Distinguishing this from `malformed` is the point: a password-protected filing is
-    // a different problem for the uploader than a corrupted download.
     expect(result.reason).toBe('encrypted');
   });
 
   it('names a malformed PDF when the body is truncated', async () => {
     const whole = await read(EARNINGS_DECK);
-    // Header intact, cross-reference table gone: the shape a cut-short transfer leaves.
     const truncated = whole.subarray(0, 2048);
 
     const result = await validateUpload(truncated, GENEROUS);
@@ -112,8 +92,6 @@ describe('rejecting with a specific reason', () => {
   });
 
   it('accepts a PDF exactly at the page limit', async () => {
-    // The boundary belongs to the accepted side; an off-by-one here rejects a document
-    // the operator deliberately allowed.
     const result = await validateUpload(await read(THREE_PAGES), limitsFromConfig(50, 3));
     expect(result.ok).toBe(true);
   });
@@ -127,7 +105,6 @@ describe('classifyOpenError', () => {
   });
 
   it('treats an unnamed password complaint as encrypted', () => {
-    // Defence against a future PDF.js renaming the exception: the message still says so.
     expect(classifyOpenError(new Error('Incorrect Password')).reason).toBe('encrypted');
   });
 

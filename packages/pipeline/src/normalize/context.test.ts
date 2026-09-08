@@ -1,12 +1,3 @@
-/**
- * Period and scope normalization.
- *
- * The property that matters most is the refusal: a fiscal year gets dates only when the
- * document said where its year begins. Everything else here exists so that a difference
- * of period or scope is visible to the classifier, because those differences are what
- * turn an apparent conflict into a reconciliation.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -48,7 +39,6 @@ describe('detectFiscalConvention', () => {
   });
 
   it('finds nothing in a bare FY reference', () => {
-    // "FY24" names a year without saying which twelve months it covers.
     expect(detectFiscalConvention('FY24 revenue grew.')).toBeNull();
   });
 });
@@ -83,9 +73,6 @@ describe('parsePeriodLabel', () => {
 
 describe('resolvePeriod', () => {
   it('refuses to date a fiscal year when the document never stated its convention', () => {
-    // Plan 5.2: resolve fiscal dates only when the convention is supported by the
-    // document. Assuming April-March is right for this collection and wrong for the
-    // next unfamiliar PDF, which is the case the whole exercise is about.
     const resolved = resolvePeriod('FY2024', 'fiscal_year', null);
 
     expect(resolved.start).toBeNull();
@@ -133,8 +120,6 @@ describe('normalizeScope', () => {
   });
 
   it('leaves a segment in its own words', () => {
-    // "Express parcel" is not a term of art with one meaning, so it compares equal only
-    // to itself rather than being folded into a category it does not have.
     expect(normalizeScope('Express parcel')).toBe('express parcel');
   });
 });
@@ -170,8 +155,6 @@ describe('compareContext', () => {
   });
 
   it('marks a currency difference as unable to explain a gap', () => {
-    // Plan 5.1 forbids converting currencies without a stated rate, so this makes the
-    // pair incomparable rather than reconcilable.
     const differences = compareContext(context(), context({ currency: 'USD' }));
     const currency = differences.find((entry) => entry.dimension === 'currency');
     expect(currency?.couldExplainGap).toBe(false);

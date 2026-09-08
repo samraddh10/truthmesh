@@ -1,12 +1,3 @@
-/**
- * Predicate comparison.
- *
- * Every test here is about a merge that must not happen. The system's failure mode is not
- * missing a comparison, which shows up as a lower recall figure; it is confidently
- * comparing two quantities that were never the same, which shows up as a false
- * contradiction with evidence attached.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { normalizePredicate, predicateHead, predicateRelation } from './predicates.ts';
@@ -32,8 +23,6 @@ describe('predicateRelation', () => {
   });
 
   it('refuses to equate revenue from operations with total income', () => {
-    // Named in plan 5.3. The figures are close, the names are close, and the merge is
-    // wrong.
     const relation = predicateRelation('revenue_from_operations', 'total_income');
     expect(relation.relation).toBe('explicitly_distinct');
     expect(relation.comparable).toBe(false);
@@ -65,7 +54,6 @@ describe('predicateRelation', () => {
   });
 
   it('never calls two different names the same measure', () => {
-    // The invariant behind all of the above: only an identical normalized name is `same`.
     const pairs: readonly (readonly [string, string])[] = [
       ['revenue', 'income'],
       ['ebitda', 'operating_profit'],

@@ -1,19 +1,3 @@
-/**
- * Ingestion: from uploaded bytes to a queued processing run.
- *
- * The ordering here is the whole point, and plan section 2.1 states the hazard directly:
- * a failure between writing the file and enqueueing work must not leave a falsely
- * successful document.
- *
- *   1. Validate, so nothing unreadable reaches storage or the database.
- *   2. Write the bytes. A file with no row is invisible, which is recoverable.
- *   3. Insert the document, the run and the job in one transaction.
- *   4. If that transaction fails, delete the file just written.
- *
- * The reverse order would be worse: a committed document row pointing at a file that was
- * never written looks successful and fails only when something tries to parse it.
- */
-
 import { rm } from 'node:fs/promises';
 
 import { and, eq } from 'drizzle-orm';
@@ -37,7 +21,6 @@ export interface IngestionContext {
   readonly boss: PgBoss;
   readonly storageDir: string;
   readonly limits: ValidationLimits;
-  /** Recorded on the run so an old result stays interpretable. See plan 1.2. */
   readonly pipelineVersion: string;
 }
 
@@ -50,11 +33,6 @@ export type IngestionOutcome =
       readonly pageCount: number;
     }
   | {
-      /**
-       * The same bytes are already in this collection. Reported, never silently
-       * reprocessed, per plan 2.1. The existing document is named so a caller can link
-       * to it rather than being told only that something went wrong.
-       */
       readonly status: 'duplicate';
       readonly documentId: string;
       readonly contentHash: string;
@@ -66,7 +44,6 @@ export type IngestionOutcome =
       readonly message: string;
     };
 
-/** Postgres unique-violation SQLSTATE. */
 const UNIQUE_VIOLATION = '23505';
 
 function isUniqueViolation(error: unknown): boolean {
@@ -94,9 +71,6 @@ export async function ingestDocument(
   const { db } = context.database;
   const { contentHash: hash, pageCount, byteSize } = validation;
 
-  // Cheap path: an obvious duplicate is answered without touching storage. The unique
-  // constraint below is what actually makes this correct under concurrency; this only
-  // avoids the wasted write in the common case.
   const alreadyPresent = await findExisting(db, request.collectionId, hash);
   if (alreadyPresent !== undefined) {
     return {
@@ -134,8 +108,6 @@ export async function ingestDocument(
         })
         .returning({ id: processingRuns.id });
 
-      // Same transaction as the two rows above. A rollback takes the job with it, so a
-      // document can never exist with nothing scheduled to process it.
       await enqueueDocumentJob(context.boss, tx, {
         runId: run!.id,
         documentId: document!.id,
@@ -152,9 +124,6 @@ export async function ingestDocument(
     });
   } catch (error) {
     if (isUniqueViolation(error)) {
-      // Lost a race against a concurrent upload of the same bytes. The winner's file is
-      // identical, since the key is the content hash, so the file is left alone and this
-      // upload is reported as the duplicate it turned out to be.
       const winner = await findExisting(db, request.collectionId, hash);
       if (winner !== undefined) {
         return {
@@ -166,9 +135,6 @@ export async function ingestDocument(
       }
     }
 
-    // The transaction rolled back, so nothing references this file. Removing it keeps
-    // storage from accumulating uploads no run will ever read. Failing to remove it is
-    // not worth surfacing over the original error, which is what the caller needs.
     await removeQuietly(context.storageDir, storageKey);
     throw error;
   }
@@ -178,6 +144,5 @@ async function removeQuietly(storageDir: string, key: string): Promise<void> {
   try {
     await rm(resolvePath(storageDir, key), { force: true });
   } catch {
-    // Deliberately swallowed: an orphaned file is harmless next to losing the real error.
   }
 }

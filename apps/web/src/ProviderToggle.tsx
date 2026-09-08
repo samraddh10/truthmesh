@@ -1,17 +1,3 @@
-/**
- * The inference provider switch, in the header.
- *
- * It sits next to the collection chooser because both are session-wide context rather
- * than a property of whatever view is open: which documents are being compared, and which
- * model is doing the comparing.
- *
- * Two things it deliberately does not do. It does not hide a provider the deployment has
- * no credentials for — a greyed control that explains itself is more useful than a
- * missing one, because "why is there no Groq option" is a question the interface should
- * answer. And it does not claim the switch is retroactive: claims already extracted keep
- * the provider that produced them, which the run's stored model name records.
- */
-
 import { useCallback, useState } from 'react';
 
 import { readSettings, setProvider, type ProviderId, type SettingsResponse } from './api.ts';
@@ -26,7 +12,6 @@ export function ProviderToggle() {
   const settings = useAsync(readSettings, 'settings');
   const [pending, setPending] = useState<ProviderId | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Held locally so the button reflects the click immediately rather than after a refetch.
   const [local, setLocal] = useState<SettingsResponse | null>(null);
 
   const current = local ?? settings.data ?? null;
@@ -47,13 +32,6 @@ export function ProviderToggle() {
     [current],
   );
 
-  /**
-   * Loading and failure are shown, not hidden.
-   *
-   * Returning null on error made the control disappear whenever `/settings` failed, which
-   * reads as "this build has no provider switch" rather than "the API did not answer" —
-   * and the second is the one a person can act on.
-   */
   if (current === null) {
     return (
       <div className="row small provider-toggle">
@@ -82,8 +60,6 @@ export function ProviderToggle() {
               className="segment"
               aria-pressed={active}
               disabled={!provider.configured || pending !== null}
-              // The model name is the useful detail here, and it is what a reviewer needs
-              // when asking which model produced a given claim.
               title={
                 provider.configured
                   ? `${LABELS[provider.id]}${provider.model === null ? '' : ` — ${provider.model}`}`
@@ -98,7 +74,6 @@ export function ProviderToggle() {
         })}
       </div>
 
-      {/* The model name, because "Groq" does not tell a reviewer what produced a claim. */}
       {error === null && activeModel !== null ? (
         <span className="muted provider-model" title={activeModel}>
           {activeModel}
