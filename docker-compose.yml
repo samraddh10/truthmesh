@@ -1,0 +1,143 @@
+# Local execution for the four services the plan names: web, api, worker and postgres.
+#
+# pg-boss creates and owns its own schema in this same database, so no separate queue
+# service is needed.
+#
+# The api and worker share one database and one PDF volume, which is what plan section
+# 1.3's exit condition requires them to demonstrate.
+
+services:
+  postgres:
+    # pgvector is required by plan section 6.1 for candidate retrieval. Taking the
+    # extension as part of the image avoids a build step in the migration path.
+    image: docker.io/pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: superjoin
+      POSTGRES_PASSWORD: superjoin
+      POSTGRES_DB: superjoin
+    ports:
+      # Exposed so migrations and tests can run on the host against the same database
+      # the containers use.
+      #
+      # 55432 rather than 5432 deliberately. The default port collides with any other
+      # Postgres already running on a developer machine, and a collision there is not
+      # merely inconvenient: DATABASE_URL would still connect, to the wrong database,
+      # and migrations would be applied to someone else's schema. A distinctive port
+      # fails loudly instead. Containers reach each other on the internal 5432.
+      - '55432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Services that depend on postgres must wait for readiness, not just for the
+      # container to exist; the server restarts once during first-run initialisation.
+      test: ['CMD-SHELL', 'pg_isready -U superjoin -d superjoin']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Applies migrations once, then exits. api and worker wait for it to succeed, so
+  # neither can start against a schema that does not exist yet.
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgres://superjoin:superjoin@postgres:5432/superjoin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      target: api
+    environment:
+      # Container-to-container, so the internal port and the service name, not 55432.
+      DATABASE_URL: postgres://superjoin:superjoin@postgres:5432/superjoin
+      STORAGE_DIR: /data/storage
+      PORT: 3000
+      # Deliberately unset: the API never holds the model key. Only the worker calls
+      # a model provider, per the plan's service boundaries.
+      #
+      # The model *names* are given, though, and they are not secrets. The provider
+      # toggle has to say which model each option would use, and a reviewer asking what
+      # produced a claim needs that name. Which providers are actually reachable is not
+      # read from here — the worker publishes that to app_settings, because only it holds
+      # the credentials that would answer the question.
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-moonshotai.kimi-k2.5}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+    ports:
+      - '3000:3000'
+    volumes:
+      - pdf-storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # The review interface. Serves the built assets and proxies the API, so the browser
+  # talks to one origin and no CORS policy exists to be wrong.
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - '5173:80'
+    depends_on:
+      - api
+
+  worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      DATABASE_URL: postgres://superjoin:superjoin@postgres:5432/superjoin
+      STORAGE_DIR: /data/storage
+      # The only service given model access, and the region is what grants it: no Bedrock
+      # call can be made without one. Withholding it from the api is what keeps that
+      # service free of model credentials. The worker will not start without a provider —
+      # this one or Groq — because there is no offline mode to fall back to.
+      AWS_REGION: ${AWS_REGION:-}
+      # A Bedrock long-term API key, which is what the console's "API key" button issues.
+      # A bearer token rather than an access-key pair, and it wins over one when both are
+      # set. Blank is read as absent, not as a credential.
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      # Left empty on anything with an instance or task role — the SDK's default chain
+      # resolves those, and a blank value is read as absent rather than as a credential.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      # Passed through so the model stays a configuration value rather than a rebuild.
+      # Accepts a model id or an inference profile ARN; the default matches packages/config.
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-moonshotai.kimi-k2.5}
+      # The second provider. Which of the two actually serves a call is a runtime setting
+      # in app_settings, changed from the header, not an environment variable — these only
+      # say what the deployment has credentials for.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-2}
+      # Bedrock throttles per account and region, and that throttling clears on its own.
+      # Passed through so the backoff can be widened without a rebuild, same as the model.
+      PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-5}
+      # Settable without a rebuild: a long document page through a large model takes far
+      # longer than a short completion, and the right ceiling depends on the model chosen.
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Xenova/all-mpnet-base-v2}
+    volumes:
+      # The same volume the api mounts, at the same path.
+      - pdf-storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  # Original PDFs and derived parsing artifacts, shared by the api and worker services
+  # once they exist. Named here so the volume's lifecycle is visible from the start.
+  pdf-storage:
