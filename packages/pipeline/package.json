@@ -1,0 +1,27 @@
+{
+  "name": "@superjoin/pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1127.0",
+    "@huggingface/transformers": "^4.2.0",
+    "@napi-rs/canvas": "^1.0.8",
+    "@superjoin/db": "0.1.0",
+    "decimal.js": "10.6.0",
+    "pg-boss": "^12.30.0",
+    "unpdf": "1.8.1"
+  }
+}
